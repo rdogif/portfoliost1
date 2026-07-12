@@ -1,7 +1,4 @@
-from pathlib import Path
-import zipfile
-
-html = """<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -10,7 +7,6 @@ html = """<!DOCTYPE html>
   <title>Rishan's Test</title>
 
   <style>
-    /* Basic page styling */
     body {
       margin: 0;
       font-family: Arial, sans-serif;
@@ -89,69 +85,28 @@ html = """<!DOCTYPE html>
 
   <main>
 
-    <!-- PROJECT 1: SAVE AND LOAD APP -->
     <div class="project">
       <h2>Save and Load</h2>
       <p>Write text, save it as a JSON file, and load it again later.</p>
 
-      <!--
-        REPLACE THE LINK BELOW with the real GitHub Pages link
-        for your Save and Load project.
-
-        Example:
-        href="https://yourusername.github.io/save-and-load/"
-      -->
-      <a
-        class="project-button"
-        href="https://rdogif.github.io/portfolioist1/save-and-load/"
-        target="_blank"
-      >
+      <a class="project-button" href="save%20and%20load.html">
         Open Project
       </a>
     </div>
 
-
     <!--
-      HOW TO ADD ANOTHER PROJECT
+      TO ADD ANOTHER PROJECT:
 
-      1. Copy everything from <div class="project"> to </div> below.
-      2. Paste it underneath your other projects.
-      3. Change the project name.
-      4. Change the description.
-      5. Change the link inside href="".
-
-      Example project:
+      Copy the section below and paste it above this comment.
 
       <div class="project">
-        <h2>GPA Calculator</h2>
-        <p>A calculator that finds your GPA.</p>
+        <h2>Project Name</h2>
+        <p>Description of the project.</p>
 
-        <a
-          class="project-button"
-          href="https://yourusername.github.io/gpa-calculator/"
-          target="_blank"
-        >
+        <a class="project-button" href="project-file.html">
           Open Project
         </a>
       </div>
-    -->
-
-
-    <!-- COPY THIS SECTION TO MAKE A NEW BUTTON:
-
-    <div class="project">
-      <h2>PROJECT NAME</h2>
-      <p>Write a short description of the project here.</p>
-
-      <a
-        class="project-button"
-        href="PASTE-PROJECT-LINK-HERE"
-        target="_blank"
-      >
-        Open Project
-      </a>
-    </div>
-
     -->
 
   </main>
@@ -161,29 +116,3 @@ html = """<!DOCTYPE html>
   </footer>
 </body>
 </html>
-"""
-
-readme = """Rishan's Test Homepage
-
-1. Open index.html.
-2. Find:
-   PASTE-YOUR-SAVE-AND-LOAD-LINK-HERE
-3. Replace it with the GitHub Pages link for your Save and Load project.
-4. Upload index.html to your new GitHub repository.
-5. Turn on GitHub Pages in Settings > Pages.
-
-The HTML file also includes comments explaining how to add more project buttons.
-"""
-
-folder = Path("/mnt/data/rishans-test")
-folder.mkdir(exist_ok=True)
-
-(folder / "index.html").write_text(html, encoding="utf-8")
-(folder / "README.txt").write_text(readme, encoding="utf-8")
-
-zip_path = Path("/mnt/data/rishans-test.zip")
-with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-    z.write(folder / "index.html", arcname="index.html")
-    z.write(folder / "README.txt", arcname="README.txt")
-
-print(f"Created: {zip_path}")
