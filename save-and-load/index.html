@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rishaan's save load test 1</title>
+
+<style>
+body{
+    font-family: Arial, sans-serif;
+    background: white;
+    color: black;
+    margin: 40px;
+}
+
+h1{
+    font-size: 48px;
+    margin-bottom: 80px;
+}
+
+label{
+    display: block;
+    font-size: 28px;
+    font-weight: bold;
+    margin-top: 25px;
+    margin-bottom: 10px;
+}
+
+input[type=text]{
+    width: 360px;
+    padding: 8px;
+    font-size: 20px;
+}
+
+textarea{
+    width: 900px;
+    max-width: 100%;
+    height: 300px;
+    padding: 10px;
+    font-size: 20px;
+}
+
+.buttons{
+    margin-top: 80px;
+    display: flex;
+    justify-content: space-around;
+    max-width: 900px;
+}
+
+button,
+.fileButton{
+    font-size: 24px;
+    padding: 10px 30px;
+    cursor: pointer;
+}
+
+input[type=file]{
+    display: none;
+}
+</style>
+</head>
+
+<body>
+
+<h1>Rishaan's save load test 1</h1>
+
+<label>Save file name</label>
+<input id="fileName" type="text" value="my-save">
+
+<label>Text:</label>
+<textarea id="textBox"></textarea>
+
+<div class="buttons">
+
+<button onclick="saveFile()">Save</button>
+
+<label class="fileButton">
+<input id="loadFile" type="file" accept=".json">
+Load
+</label>
+
+</div>
+
+<script>
+
+function saveFile(){
+
+    const saveData = {
+        text: document.getElementById("textBox").value
+    };
+
+    const json = JSON.stringify(saveData, null, 2);
+
+    const blob = new Blob([json], {
+        type: "application/json"
+    });
+
+    const link = document.createElement("a");
+
+    link.href = URL.createObjectURL(blob);
+
+    link.download =
+        (document.getElementById("fileName").value || "my-save") + ".json";
+
+    link.click();
+
+    URL.revokeObjectURL(link.href);
+}
+
+document.getElementById("loadFile").addEventListener("change", function(event){
+
+    const file = event.target.files[0];
+
+    if(!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = function(){
+
+        try{
+
+            const data = JSON.parse(reader.result);
+
+            document.getElementById("textBox").value = data.text || "";
+
+        }catch{
+
+            alert("Invalid JSON file.");
+
+        }
+
+    };
+
+    reader.readAsText(file);
+
+});
+
+</script>
+
+</body>
+</html>
