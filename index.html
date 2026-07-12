@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JSON Text Saver</title>
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:linear-gradient(135deg,#eaf6ff,#f4ecff);color:#172033;padding:20px}
+.app{max-width:760px;margin:auto}
+.card{background:white;border-radius:22px;padding:18px;box-shadow:0 18px 45px rgba(0,0,0,.12)}
+h1{margin-top:0;font-size:clamp(2rem,7vw,3rem)}
+p{color:#667085}
+label{display:block;font-weight:700;margin:14px 0 7px}
+input,textarea{width:100%;box-sizing:border-box;border:1px solid #cfd5e3;border-radius:12px;padding:12px;font:inherit;font-size:16px}
+textarea{min-height:300px;resize:vertical}
+.buttons{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+button,.file-button{border:0;border-radius:12px;padding:12px;font:inherit;font-weight:700;cursor:pointer;text-align:center}
+.primary{background:#5b6cff;color:white}
+.secondary{background:#eef0ff;color:#172033}
+.danger{background:#ffecef;color:#c94455}
+input[type=file]{display:none}
+#message{min-height:24px;margin-top:14px;font-weight:700}
+.preview{margin-top:16px;background:#f6f7ff;border-radius:14px;padding:14px}
+pre{white-space:pre-wrap;word-break:break-word;margin:0}
+@media(max-width:620px){.buttons{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main class="app">
+<h1>JSON Text Saver</h1>
+<p>Write anything, download it as a JSON file, and load it back later.</p>
+<section class="card">
+<label for="fileName">Save file name</label>
+<input id="fileName" value="my-save">
+<label for="textBox">Your text</label>
+<textarea id="textBox" placeholder="Write anything here..."></textarea>
+<div class="buttons">
+<button class="primary" id="saveBtn">Download JSON</button>
+<label class="file-button secondary" for="loadFile">Load JSON</label>
+<input id="loadFile" type="file" accept=".json,application/json">
+<button class="danger" id="clearBtn">Clear</button>
+</div>
+<div id="message"></div>
+<div class="preview"><strong>JSON preview</strong><pre id="preview"></pre></div>
+</section>
+</main>
+<script>
+const fileNameInput=document.getElementById("fileName");
+const textBox=document.getElementById("textBox");
+const loadFile=document.getElementById("loadFile");
+const message=document.getElementById("message");
+const preview=document.getElementById("preview");
+
+function getData(){
+  return {version:1,text:textBox.value,savedAt:new Date().toISOString()};
+}
+function updatePreview(){
+  preview.textContent=JSON.stringify(getData(),null,2);
+}
+function show(text,error=false){
+  message.textContent=text;
+  message.style.color=error?"#c94455":"#16835f";
+}
+function safeName(name){
+  return (name.trim().replace(/[<>:"/\\|?*\x00-\x1F]/g,"-").replace(/\s+/g,"-")||"my-save");
+}
+
+document.getElementById("saveBtn").addEventListener("click",()=>{
+  try{
+    const blob=new Blob([JSON.stringify(getData(),null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download=safeName(fileNameInput.value)+".json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    show("JSON file downloaded.");
+  }catch(e){
+    show("Could not save the file.",true);
+  }
+});
+
+loadFile.addEventListener("change",event=>{
+  const file=event.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const data=JSON.parse(reader.result);
+      if(!data||typeof data.text!=="string")throw new Error();
+      textBox.value=data.text;
+      fileNameInput.value=file.name.replace(/\.json$/i,"");
+      updatePreview();
+      show("JSON file loaded.");
+    }catch(e){
+      show("That is not a valid save file.",true);
+    }
+    loadFile.value="";
+  };
+  reader.onerror=()=>show("Could not read the file.",true);
+  reader.readAsText(file);
+});
+
+document.getElementById("clearBtn").addEventListener("click",()=>{
+  textBox.value="";
+  updatePreview();
+  show("Text cleared.");
+});
+
+textBox.addEventListener("input",updatePreview);
+updatePreview();
+</script>
+</body>
+</html>
