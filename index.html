@@ -1,0 +1,189 @@
+from pathlib import Path
+import zipfile
+
+html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Rishan's Test</title>
+
+  <style>
+    /* Basic page styling */
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f3f3f3;
+      color: #222;
+    }
+
+    header {
+      background: white;
+      border-bottom: 1px solid #d8d8d8;
+      padding: 24px;
+      text-align: center;
+    }
+
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+    }
+
+    header p {
+      margin: 0;
+      color: #666;
+    }
+
+    main {
+      width: min(700px, calc(100% - 32px));
+      margin: 32px auto;
+    }
+
+    .project {
+      background: white;
+      border: 1px solid #d8d8d8;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .project h2 {
+      margin: 0 0 8px;
+      font-size: 21px;
+    }
+
+    .project p {
+      margin: 0 0 16px;
+      color: #555;
+      line-height: 1.5;
+    }
+
+    .project-button {
+      display: inline-block;
+      padding: 10px 16px;
+      background: #222;
+      color: white;
+      text-decoration: none;
+      border-radius: 5px;
+    }
+
+    .project-button:hover {
+      background: #444;
+    }
+
+    footer {
+      text-align: center;
+      padding: 24px;
+      color: #777;
+      font-size: 14px;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Rishan's Test</h1>
+    <p>A collection of my projects.</p>
+  </header>
+
+  <main>
+
+    <!-- PROJECT 1: SAVE AND LOAD APP -->
+    <div class="project">
+      <h2>Save and Load</h2>
+      <p>Write text, save it as a JSON file, and load it again later.</p>
+
+      <!--
+        REPLACE THE LINK BELOW with the real GitHub Pages link
+        for your Save and Load project.
+
+        Example:
+        href="https://yourusername.github.io/save-and-load/"
+      -->
+      <a
+        class="project-button"
+        href="PASTE-YOUR-SAVE-AND-LOAD-LINK-HERE"
+        target="_blank"
+      >
+        Open Project
+      </a>
+    </div>
+
+
+    <!--
+      HOW TO ADD ANOTHER PROJECT
+
+      1. Copy everything from <div class="project"> to </div> below.
+      2. Paste it underneath your other projects.
+      3. Change the project name.
+      4. Change the description.
+      5. Change the link inside href="".
+
+      Example project:
+
+      <div class="project">
+        <h2>GPA Calculator</h2>
+        <p>A calculator that finds your GPA.</p>
+
+        <a
+          class="project-button"
+          href="https://yourusername.github.io/gpa-calculator/"
+          target="_blank"
+        >
+          Open Project
+        </a>
+      </div>
+    -->
+
+
+    <!-- COPY THIS SECTION TO MAKE A NEW BUTTON:
+
+    <div class="project">
+      <h2>PROJECT NAME</h2>
+      <p>Write a short description of the project here.</p>
+
+      <a
+        class="project-button"
+        href="PASTE-PROJECT-LINK-HERE"
+        target="_blank"
+      >
+        Open Project
+      </a>
+    </div>
+
+    -->
+
+  </main>
+
+  <footer>
+    Made by Rishan
+  </footer>
+</body>
+</html>
+"""
+
+readme = """Rishan's Test Homepage
+
+1. Open index.html.
+2. Find:
+   PASTE-YOUR-SAVE-AND-LOAD-LINK-HERE
+3. Replace it with the GitHub Pages link for your Save and Load project.
+4. Upload index.html to your new GitHub repository.
+5. Turn on GitHub Pages in Settings > Pages.
+
+The HTML file also includes comments explaining how to add more project buttons.
+"""
+
+folder = Path("/mnt/data/rishans-test")
+folder.mkdir(exist_ok=True)
+
+(folder / "index.html").write_text(html, encoding="utf-8")
+(folder / "README.txt").write_text(readme, encoding="utf-8")
+
+zip_path = Path("/mnt/data/rishans-test.zip")
+with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+    z.write(folder / "index.html", arcname="index.html")
+    z.write(folder / "README.txt", arcname="README.txt")
+
+print(f"Created: {zip_path}")
