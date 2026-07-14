@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Blackjack</title>
+
   <style>
     * {
       box-sizing: border-box;
@@ -32,9 +33,31 @@
     }
 
     .status {
-      min-height: 30px;
-      font-size: 20px;
+      min-height: 48px;
+      font-size: 22px;
+      font-weight: bold;
       margin-bottom: 20px;
+      padding: 10px;
+      border: 2px solid transparent;
+      background: #124726;
+    }
+
+    .status.win {
+      background: #d9f7d9;
+      color: #145214;
+      border-color: #145214;
+    }
+
+    .status.lose {
+      background: #ffd6d6;
+      color: #8b1111;
+      border-color: #8b1111;
+    }
+
+    .status.tie {
+      background: #fff0b8;
+      color: #6b5200;
+      border-color: #6b5200;
     }
 
     .hand {
@@ -111,22 +134,33 @@
     }
   </style>
 </head>
+
 <body>
   <div class="game">
     <h1>Blackjack</h1>
 
-    <div id="status" class="status">Press New Game to start.</div>
+    <div id="status" class="status">
+      Press New Game to start.
+    </div>
 
     <div class="hand">
       <h2>Dealer</h2>
+
       <div id="dealerCards" class="cards"></div>
-      <div id="dealerScore" class="score">Score: 0</div>
+
+      <div id="dealerScore" class="score">
+        Score: 0
+      </div>
     </div>
 
     <div class="hand">
       <h2>You</h2>
+
       <div id="playerCards" class="cards"></div>
-      <div id="playerScore" class="score">Score: 0</div>
+
+      <div id="playerScore" class="score">
+        Score: 0
+      </div>
     </div>
 
     <div>
@@ -142,6 +176,7 @@
 
   <script>
     const suits = ["♠", "♥", "♦", "♣"];
+
     const ranks = [
       { name: "A", value: 11 },
       { name: "2", value: 2 },
@@ -168,9 +203,15 @@
     const dealerCards = document.getElementById("dealerCards");
     const playerScore = document.getElementById("playerScore");
     const dealerScore = document.getElementById("dealerScore");
-    const newGameButton = document.getElementById("newGameButton");
-    const hitButton = document.getElementById("hitButton");
-    const standButton = document.getElementById("standButton");
+
+    const newGameButton =
+      document.getElementById("newGameButton");
+
+    const hitButton =
+      document.getElementById("hitButton");
+
+    const standButton =
+      document.getElementById("standButton");
 
     function createDeck() {
       const newDeck = [];
@@ -190,8 +231,11 @@
 
     function shuffleDeck() {
       for (let i = deck.length - 1; i > 0; i--) {
-        const randomIndex = Math.floor(Math.random() * (i + 1));
-        [deck[i], deck[randomIndex]] = [deck[randomIndex], deck[i]];
+        const randomIndex =
+          Math.floor(Math.random() * (i + 1));
+
+        [deck[i], deck[randomIndex]] =
+          [deck[randomIndex], deck[i]];
       }
     }
 
@@ -221,6 +265,7 @@
 
     function makeCardElement(card, hidden = false) {
       const cardElement = document.createElement("div");
+
       cardElement.className = "card";
 
       if (hidden) {
@@ -243,62 +288,95 @@
       dealerCards.innerHTML = "";
 
       for (const card of playerHand) {
-        playerCards.appendChild(makeCardElement(card));
+        playerCards.appendChild(
+          makeCardElement(card)
+        );
       }
 
       dealerHand.forEach((card, index) => {
-        const shouldHide = index === 1 && !revealDealer && !gameOver;
-        dealerCards.appendChild(makeCardElement(card, shouldHide));
+        const shouldHide =
+          index === 1 &&
+          !revealDealer &&
+          !gameOver;
+
+        dealerCards.appendChild(
+          makeCardElement(card, shouldHide)
+        );
       });
 
-      playerScore.textContent = "Score: " + calculateScore(playerHand);
+      playerScore.textContent =
+        "Score: " + calculateScore(playerHand);
 
       if (revealDealer || gameOver) {
-        dealerScore.textContent = "Score: " + calculateScore(dealerHand);
+        dealerScore.textContent =
+          "Score: " + calculateScore(dealerHand);
       } else {
-        dealerScore.textContent = "Score: " + dealerHand[0].value;
+        dealerScore.textContent =
+          "Score: " + dealerHand[0].value;
       }
     }
 
     function startGame() {
-      deck = createDeck();
-      shuffleDeck();
+      statusText.className = "status";
 
-      playerHand = [drawCard(), drawCard()];
-      dealerHand = [drawCard(), drawCard()];
+      /*
+        Keep dealing new opening hands until
+        neither player starts with exactly 21.
+      */
+      do {
+        deck = createDeck();
+        shuffleDeck();
+
+        playerHand = [
+          drawCard(),
+          drawCard()
+        ];
+
+        dealerHand = [
+          drawCard(),
+          drawCard()
+        ];
+      } while (
+        calculateScore(playerHand) === 21 ||
+        calculateScore(dealerHand) === 21
+      );
+
       gameOver = false;
 
       hitButton.disabled = false;
       standButton.disabled = false;
-      statusText.textContent = "Your turn.";
+
+      statusText.textContent =
+        "Your turn. Choose Hit or Stand.";
 
       updateDisplay();
-
-      const playerTotal = calculateScore(playerHand);
-      const dealerTotal = calculateScore(dealerHand);
-
-      if (playerTotal === 21 || dealerTotal === 21) {
-        finishGame();
-      }
     }
 
     function hit() {
-      if (gameOver) return;
+      if (gameOver) {
+        return;
+      }
 
       playerHand.push(drawCard());
+
       updateDisplay();
 
       const total = calculateScore(playerHand);
 
       if (total > 21) {
-        endGame("You went over 21. Dealer wins.");
+        endGame(
+          "YOU LOSE — You went over 21.",
+          "lose"
+        );
       } else if (total === 21) {
         stand();
       }
     }
 
     function stand() {
-      if (gameOver) return;
+      if (gameOver) {
+        return;
+      }
 
       while (calculateScore(dealerHand) < 17) {
         dealerHand.push(drawCard());
@@ -308,33 +386,67 @@
     }
 
     function finishGame() {
-      const playerTotal = calculateScore(playerHand);
-      const dealerTotal = calculateScore(dealerHand);
+      const playerTotal =
+        calculateScore(playerHand);
+
+      const dealerTotal =
+        calculateScore(dealerHand);
 
       if (playerTotal > 21) {
-        endGame("You went over 21. Dealer wins.");
+        endGame(
+          "YOU LOSE — You went over 21.",
+          "lose"
+        );
       } else if (dealerTotal > 21) {
-        endGame("Dealer went over 21. You win!");
+        endGame(
+          "YOU WIN — The dealer went over 21!",
+          "win"
+        );
       } else if (playerTotal > dealerTotal) {
-        endGame("You win!");
+        endGame(
+          "YOU WIN — Your hand is closer to 21!",
+          "win"
+        );
       } else if (dealerTotal > playerTotal) {
-        endGame("Dealer wins.");
+        endGame(
+          "YOU LOSE — The dealer is closer to 21.",
+          "lose"
+        );
       } else {
-        endGame("It is a tie.");
+        endGame(
+          "TIE — Both hands have the same score.",
+          "tie"
+        );
       }
     }
 
-    function endGame(message) {
+    function endGame(message, resultType) {
       gameOver = true;
+
       hitButton.disabled = true;
       standButton.disabled = true;
+
       statusText.textContent = message;
+      statusText.className =
+        "status " + resultType;
+
       updateDisplay(true);
     }
 
-    newGameButton.addEventListener("click", startGame);
-    hitButton.addEventListener("click", hit);
-    standButton.addEventListener("click", stand);
+    newGameButton.addEventListener(
+      "click",
+      startGame
+    );
+
+    hitButton.addEventListener(
+      "click",
+      hit
+    );
+
+    standButton.addEventListener(
+      "click",
+      stand
+    );
   </script>
 </body>
 </html>
