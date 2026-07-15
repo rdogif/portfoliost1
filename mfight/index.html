@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monkey Champion Battle</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: #87ceeb;
+    font-family: Arial, sans-serif;
+    user-select: none;
+  }
+  canvas { display: block; }
+  #restartButton {
+    position: fixed;
+    left: 50%;
+    top: 70%;
+    transform: translate(-50%, -50%);
+    padding: 14px 28px;
+    border: 3px solid #222;
+    border-radius: 10px;
+    background: white;
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    display: none;
+    box-shadow: 0 5px 0 #222;
+  }
+  #restartButton:active {
+    transform: translate(-50%, calc(-50% + 4px));
+    box-shadow: 0 1px 0 #222;
+  }
+
+#bracketButton{
+position:fixed;right:20px;bottom:20px;padding:10px 18px;font-size:18px;
+display:none;border:2px solid #222;border-radius:8px;background:#fff;cursor:pointer;
+}
+#bracketPanel{
+position:fixed;right:20px;top:20px;width:min(360px,calc(100vw - 40px));
+max-height:75vh;overflow:auto;background:rgba(255,255,255,.97);
+border:3px solid #222;border-radius:10px;padding:16px;display:none;
+font-family:Arial,sans-serif;z-index:20;color:#222;
+}
+#bracketPanel h3{margin:0 35px 12px 0;font-size:23px;}
+#bracketList div{padding:4px 0;line-height:1.35;}
+#closeBracketButton{
+position:absolute;right:9px;top:7px;width:32px;height:32px;border:0;
+background:transparent;font-size:28px;cursor:pointer;line-height:28px;
+}
+
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<button id="restartButton">Next Fight</button>
+
+<button id="bracketButton">Tournament Bracket</button>
+<div id="bracketPanel">
+  <button id="closeBracketButton" aria-label="Close bracket">×</button>
+  <h3>Champion History</h3>
+  <div id="bracketList"><p>No completed fights yet.</p></div>
+</div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const restartButton=document.getElementById("restartButton");
+const bracketHistory=[];
+
+
+let width, height, groundY;
+let previousTime = performance.now();
+
+function resizeCanvas() {
+  width = innerWidth;
+  height = innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+  groundY = height * 0.78;
+}
+addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+const monkeyNames = [
+  "Banana Bandit", "Coconut Kong", "Jungle Jack", "Mango Mike",
+  "Cheeky Chimp", "Bongo Banana", "King Plantain", "Monkey McGee",
+  "Peanut Primate", "Captain Coconut", "Gorilla Greg", "Swinging Sammy",
+  "Banana Bob", "Jungle Joe", "Chimpy Charlie", "Mighty Momo",
+  "Vine Victor", "Cocoa Kong", "Bamboo Bruno", "Primate Pete",
+  "Monkey Max", "Banana Bruno", "Jungle Jester", "Chimp Champion",
+  "Treetop Tony", "Funky Monkey", "Coconut Crusher", "Banana Bruiser",
+  "Vine Viper", "Mango Mayhem", "Plantain Puncher", "Treetop Titan"
+];
+
+const styles = [
+  { color: "#8b552a", faceColor: "#e0b27d" },
+  { color: "#5f3822", faceColor: "#c99565" },
+  { color: "#9a6236", faceColor: "#e5b982" },
+  { color: "#4e3325", faceColor: "#bc8a61" },
+  { color: "#75503a", faceColor: "#d5a979" }
+];
+
+function randomItem(array) {
+  return array[Math.floor(Math.random() * array.length)];
+}
+
+function randomName(excluded = []) {
+  const choices = monkeyNames.filter(name => !excluded.includes(name));
+  return choices.length ? randomItem(choices) : "Mystery Monkey";
+}
+
+const game = {
+  state: "countdown",
+  countdown: 3,
+  countdownTimer: 0,
+  winner: "",
+  screenShake: 0,
+  time: 0,
+  round: 1
+};
+
+const particles = [];
+const floatingTexts = [];
+let championData = null;
+let monkey1, monkey2;
+
+class Monkey {
+  constructor({ name, color, faceColor, x, direction, isChampion = false }) {
+    this.name = name;
+    this.color = color;
+    this.faceColor = faceColor;
+    this.x = x;
+    this.y = groundY - 100;
+    this.direction = direction;
+    this.velocityX = 0;
+    this.velocityY = 0;
+    this.health = 100;
+    this.maxHealth = 100;
+    this.state = "idle";
+    this.stateTimer = 0;
+    this.attackCooldown = 0;
+    this.hitFlash = 0;
+    this.walkCycle = 0;
+    this.isGrounded = true;
+    this.isBlocking = false;
+    this.combo = 0;
+    this.comboTimer = 0;
+    this.target = null;
+    this.isChampion = isChampion;
+    this.aiDelay = Math.random() * 25;
+  }
+
+  update(dt) {
+    this.attackCooldown -= dt;
+    this.stateTimer -= dt;
+    this.hitFlash -= dt;
+    this.comboTimer -= dt;
+    this.aiDelay -= dt;
+
+    if (this.comboTimer <= 0) this.combo = 0;
+
+    this.velocityY += 0.5 * dt;
+    this.x += this.velocityX * dt;
+    this.y += this.velocityY * dt;
+    this.velocityX *= Math.pow(0.88, dt);
+
+    const floor = groundY - 100;
+    if (this.y >= floor) {
+      this.y = floor;
+      this.velocityY = 0;
+      this.isGrounded = true;
+    } else {
+      this.isGrounded = false;
+    }
+
+    this.x = Math.max(70, Math.min(width - 70, this.x));
+
+    if (this.target) this.direction = this.target.x > this.x ? 1 : -1;
+    if (this.state === "walking") this.walkCycle += 0.25 * dt;
+
+    if (this.stateTimer <= 0 && ["punch","kick","hurt","block","dodge"].includes(this.state)) {
+      this.state = "idle";
+      this.isBlocking = false;
+    }
+
+    if (game.state === "fighting") this.runAI(dt);
+  }
+
+  runAI(dt) {
+    if (!this.target || this.health <= 0 || this.aiDelay > 0) return;
+    if (["punch","kick","hurt","dodge","knockedOut"].includes(this.state)) return;
+
+    const distance = Math.abs(this.target.x - this.x);
+    const targetAttacking = ["punch","kick"].includes(this.target.state);
+
+    if (targetAttacking && distance < 145 && Math.random() < 0.025 * dt) {
+      Math.random() < 0.55 ? this.block() : this.dodge();
+      return;
+    }
+
+    if (distance > 120) {
+      this.state = "walking";
+      this.velocityX += this.direction * (distance > 300 ? 2.3 : 1.5) * dt;
+      if (distance > 220 && this.isGrounded && Math.random() < 0.0025 * dt) this.jump();
+      return;
+    }
+
+    this.state = "idle";
+    if (distance < 78) this.velocityX -= this.direction * 0.7 * dt;
+
+    if (this.attackCooldown <= 0) {
+      Math.random() < 0.62 ? this.punch() : this.kick();
+    }
+  }
+
+  jump() {
+    if (!this.isGrounded) return;
+    this.velocityY = -9;
+    this.velocityX += this.direction * 2;
+  }
+
+  punch() {
+    if (this.attackCooldown > 0 || this.health <= 0) return;
+    this.state = "punch";
+    this.stateTimer = 24;
+    this.attackCooldown = 42;
+    setTimeout(() => {
+      if (game.state === "fighting" && this.state === "punch") this.tryHit(11, 125, "PUNCH!");
+    }, 170);
+  }
+
+  kick() {
+    if (this.attackCooldown > 0 || this.health <= 0) return;
+    this.state = "kick";
+    this.stateTimer = 32;
+    this.attackCooldown = 55;
+    setTimeout(() => {
+      if (game.state === "fighting" && this.state === "kick") this.tryHit(16, 145, "KICK!");
+    }, 240);
+  }
+
+  block() {
+    this.state = "block";
+    this.stateTimer = 28;
+    this.isBlocking = true;
+    this.attackCooldown = 25;
+  }
+
+  dodge() {
+    this.state = "dodge";
+    this.stateTimer = 25;
+    this.velocityX = -this.direction * 7;
+    this.attackCooldown = 25;
+    createFloatingText(this.x, this.y - 80, "DODGE!", "#fff");
+  }
+
+  tryHit(damage, range, text) {
+    if (!this.target || this.target.health <= 0) return;
+    const distance = Math.abs(this.target.x - this.x);
+    const facing = Math.sign(this.target.x - this.x) === this.direction;
+    if (distance > range || !facing) return;
+
+    if (this.target.state === "dodge") {
+      createFloatingText(this.target.x, this.target.y - 80, "MISSED!", "#fff");
+      return;
+    }
+
+    let finalDamage = damage;
+    if (this.target.isBlocking) {
+      finalDamage = Math.max(2, Math.floor(damage * 0.25));
+      createFloatingText(this.target.x, this.target.y - 100, "BLOCK!", "#66ccff");
+    } else {
+      this.combo++;
+      this.comboTimer = 100;
+    }
+
+    this.target.takeDamage(finalDamage, this.direction);
+    createHitParticles(this.target.x, this.target.y - 45, this.color);
+    createFloatingText(this.target.x, this.target.y - 120, text, "#ffe600");
+
+    if (this.combo >= 2) {
+      createFloatingText(this.x, this.y - 145, this.combo + " HIT COMBO!", "#ff9900");
+    }
+    game.screenShake = this.target.isBlocking ? 3 : 8;
+  }
+
+  takeDamage(amount, direction) {
+    if (this.health <= 0) return;
+    this.health = Math.max(0, this.health - amount);
+    this.hitFlash = 8;
+    this.velocityX = direction * amount * 0.22;
+
+    if (!this.isBlocking) {
+      this.state = "hurt";
+      this.stateTimer = 18;
+    }
+
+    if (this.health <= 0) {
+      this.state = "knockedOut";
+      this.velocityX = direction * 6;
+      this.velocityY = -5;
+      setTimeout(() => endFight(this.target), 900);
+    }
+  }
+
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+
+    if (this.state === "knockedOut") ctx.rotate(this.direction * 1.3);
+    ctx.scale(this.direction, 1);
+
+    const bounce = this.state === "walking"
+      ? Math.sin(this.walkCycle) * 3
+      : Math.sin(game.time * 0.08) * 1.5;
+
+    ctx.translate(0, bounce);
+
+    if (this.hitFlash > 0 && Math.floor(this.hitFlash) % 2 === 0) ctx.globalAlpha = 0.45;
+
+    this.drawShadow();
+    this.drawTail();
+    this.drawBody();
+    this.drawLegs();
+    this.drawArms();
+    this.drawHead();
+    if (this.isChampion) this.drawCrown();
+
+    ctx.restore();
+  }
+
+  drawShadow() {
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.ellipse(0, 103, 48, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  drawTail() {
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = 11;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-27, 48);
+    ctx.bezierCurveTo(-70, 35, -75, -20, -40, -22);
+    ctx.stroke();
+  }
+
+  drawBody() {
+    ctx.fillStyle = this.color;
+    ctx.strokeStyle = "#2d1b10";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(0, 43, 35, 48, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = this.faceColor;
+    ctx.beginPath();
+    ctx.ellipse(5, 50, 20, 27, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  drawHead() {
+    ctx.fillStyle = this.color;
+    ctx.strokeStyle = "#2d1b10";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(0, -23, 36, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    for (const ex of [-30, 30]) {
+      ctx.beginPath();
+      ctx.arc(ex, -28, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = this.faceColor;
+    ctx.beginPath();
+    ctx.ellipse(7, -16, 24, 21, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.arc(-4, -31, 3, 0, Math.PI * 2);
+    ctx.arc(15, -31, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#3d2010";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    if (this.state === "hurt") ctx.arc(7, -8, 8, Math.PI, Math.PI * 2);
+    else ctx.arc(7, -12, 8, 0, Math.PI);
+    ctx.stroke();
+  }
+
+  drawArms() {
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = 15;
+    ctx.lineCap = "round";
+
+    let fx = 42, fy = 40, bx = -38, by = 46;
+
+    if (this.state === "punch") {
+      const p = Math.max(0, 1 - Math.abs(this.stateTimer - 13) / 13);
+      fx = 42 + p * 65;
+      fy = 28;
+    }
+    if (this.state === "block") {
+      fx = 32; fy = -18; bx = 8; by = -25;
+    }
+    if (this.state === "hurt") {
+      fx = 24; fy = 65; bx = -25; by = 68;
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(24, 23);
+    ctx.lineTo(fx, fy);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(-24, 23);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+
+    ctx.fillStyle = this.faceColor;
+    for (const [x, y] of [[fx,fy],[bx,by]]) {
+      ctx.beginPath();
+      ctx.arc(x, y, 10, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  drawLegs() {
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = 16;
+    ctx.lineCap = "round";
+
+    let lx = -18, ly = 100, rx = 20, ry = 100;
+
+    if (this.state === "walking") {
+      lx += Math.sin(this.walkCycle) * 14;
+      rx -= Math.sin(this.walkCycle) * 14;
+    }
+
+    if (this.state === "kick") {
+      const p = Math.max(0, 1 - Math.abs(this.stateTimer - 15) / 15);
+      rx = 22 + p * 70;
+      ry = 70 - p * 15;
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(-16, 76);
+    ctx.lineTo(lx, ly);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(16, 76);
+    ctx.lineTo(rx, ry);
+    ctx.stroke();
+
+    ctx.fillStyle = this.faceColor;
+    ctx.beginPath();
+    ctx.ellipse(lx + 5, ly, 16, 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(rx + 5, ry, 16, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  drawCrown() {
+    ctx.save();
+    ctx.translate(0, -68);
+    ctx.scale(this.direction, 1);
+    ctx.fillStyle = "#ffd700";
+    ctx.strokeStyle = "#7a4b00";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-24, 12);
+    ctx.lineTo(-19, -12);
+    ctx.lineTo(-7, 2);
+    ctx.lineTo(0, -18);
+    ctx.lineTo(9, 2);
+    ctx.lineTo(21, -12);
+    ctx.lineTo(25, 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function makeMonkey(data, x, direction, isChampion = false) {
+  return new Monkey({
+    name: data.name,
+    color: data.color,
+    faceColor: data.faceColor,
+    x,
+    direction,
+    isChampion
+  });
+}
+
+function createFirstFight() {
+  const style1 = randomItem(styles);
+  let style2 = randomItem(styles);
+  while (style2 === style1) style2 = randomItem(styles);
+
+  const data1 = { name: randomName(), ...style1 };
+  const data2 = { name: randomName([data1.name]), ...style2 };
+
+  monkey1 = makeMonkey(data1, width * 0.25, 1);
+  monkey2 = makeMonkey(data2, width * 0.75, -1);
+  monkey1.target = monkey2;
+  monkey2.target = monkey1;
+}
+
+function createNextFight() {
+  const championLeft = Math.random() < 0.5;
+  const challengerStyle = randomItem(styles);
+  const challenger = {
+    name: randomName([championData.name]),
+    ...challengerStyle
+  };
+
+  if (championLeft) {
+    monkey1 = makeMonkey(championData, width * 0.25, 1, true);
+    monkey2 = makeMonkey(challenger, width * 0.75, -1);
+  } else {
+    monkey1 = makeMonkey(challenger, width * 0.25, 1);
+    monkey2 = makeMonkey(championData, width * 0.75, -1, true);
+  }
+
+  monkey1.target = monkey2;
+  monkey2.target = monkey1;
+}
+
+function drawBackground() {
+  const grad = ctx.createLinearGradient(0, 0, 0, groundY);
+  grad.addColorStop(0, "#6bc8ff");
+  grad.addColorStop(1, "#d8f5ff");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = "#ffd83d";
+  ctx.beginPath();
+  ctx.arc(width * 0.86, height * 0.16, 48, 0, Math.PI * 2);
+  ctx.fill();
+
+  drawCloud(width * 0.18, height * 0.17, 1);
+  drawCloud(width * 0.72, height * 0.12, 0.8);
+  drawMountain(width * 0.15, groundY, 260, 210);
+  drawMountain(width * 0.72, groundY, 310, 250);
+
+  ctx.fillStyle = "#64a83f";
+  ctx.fillRect(0, groundY - 40, width, 40);
+  ctx.fillStyle = "#3d7c2c";
+  ctx.fillRect(0, groundY, width, height - groundY);
+
+  drawTree(80, groundY);
+  drawTree(width - 90, groundY);
+}
+
+function drawCloud(x, y, s) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  ctx.fillStyle = "rgba(255,255,255,.85)";
+  ctx.beginPath();
+  ctx.arc(-35, 10, 28, 0, Math.PI * 2);
+  ctx.arc(0, -5, 38, 0, Math.PI * 2);
+  ctx.arc(42, 10, 27, 0, Math.PI * 2);
+  ctx.fillRect(-35, 10, 77, 27);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawMountain(x, y, w, h) {
+  ctx.fillStyle = "#6b9669";
+  ctx.beginPath();
+  ctx.moveTo(x - w/2, y);
+  ctx.lineTo(x, y - h);
+  ctx.lineTo(x + w/2, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawTree(x, y) {
+  ctx.fillStyle = "#68421f";
+  ctx.fillRect(x - 18, y - 150, 36, 150);
+  ctx.fillStyle = "#2f8a3b";
+  ctx.beginPath();
+  ctx.arc(x, y - 160, 65, 0, Math.PI * 2);
+  ctx.arc(x - 35, y - 135, 48, 0, Math.PI * 2);
+  ctx.arc(x + 42, y - 135, 50, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawHealthBars() {
+  const barWidth = Math.min(350, width * 0.33);
+  drawHealthBar(40, 35, barWidth, 30, monkey1, false);
+  drawHealthBar(width - barWidth - 40, 35, barWidth, 30, monkey2, true);
+
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 5;
+  ctx.font = "bold 25px Arial";
+  ctx.textAlign = "center";
+  ctx.strokeText("ROUND " + game.round, width / 2, 55);
+  ctx.fillText("ROUND " + game.round, width / 2, 55);
+}
+
+function drawHealthBar(x, y, w, h, monkey, reverse) {
+  ctx.fillStyle = "#222";
+  ctx.fillRect(x - 5, y - 5, w + 10, h + 10);
+  ctx.fillStyle = "#5a1717";
+  ctx.fillRect(x, y, w, h);
+
+  const percent = monkey.health / monkey.maxHealth;
+  const healthWidth = w * percent;
+  ctx.fillStyle = percent < .25 ? "#ef3838" : percent < .5 ? "#ffc52e" : "#46d34f";
+  ctx.fillRect(reverse ? x + w - healthWidth : x, y, healthWidth, h);
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 17px Arial";
+  ctx.textAlign = reverse ? "right" : "left";
+  const crown = monkey.isChampion ? " 👑" : "";
+  ctx.fillText(monkey.name + crown + "  " + Math.ceil(monkey.health), reverse ? x + w : x, y - 12);
+}
+
+function createHitParticles(x, y, color) {
+  for (let i = 0; i < 18; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - .5) * 10,
+      vy: (Math.random() - .5) * 10,
+      life: 35 + Math.random() * 20,
+      size: 3 + Math.random() * 7,
+      color: Math.random() < .5 ? color : "#ffe600"
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += .15 * dt;
+    p.life -= dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p.life / 40);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function createFloatingText(x, y, text, color) {
+  floatingTexts.push({ x, y, text, color, life: 50 });
+}
+
+function updateFloatingTexts(dt) {
+  for (let i = floatingTexts.length - 1; i >= 0; i--) {
+    floatingTexts[i].y -= .7 * dt;
+    floatingTexts[i].life -= dt;
+    if (floatingTexts[i].life <= 0) floatingTexts.splice(i, 1);
+  }
+}
+
+function drawFloatingTexts() {
+  for (const t of floatingTexts) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, t.life / 20);
+    ctx.font = "bold 25px Arial";
+    ctx.textAlign = "center";
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "#222";
+    ctx.fillStyle = t.color;
+    ctx.strokeText(t.text, t.x, t.y);
+    ctx.fillText(t.text, t.x, t.y);
+    ctx.restore();
+  }
+}
+
+function updateCountdown(dt) {
+  if (game.state !== "countdown") return;
+  game.countdownTimer += dt;
+  if (game.countdownTimer >= 60) {
+    game.countdownTimer = 0;
+    game.countdown--;
+    if (game.countdown <= 0) game.state = "fighting";
+  }
+}
+
+function drawCountdown() {
+  if (game.state !== "countdown") return;
+  ctx.save();
+  ctx.font = "bold 100px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = "#222";
+  ctx.fillStyle = "#ffe12d";
+  ctx.strokeText(game.countdown, width / 2, height / 2);
+  ctx.fillText(game.countdown, width / 2, height / 2);
+  ctx.restore();
+}
+
+function endFight(winner) {
+  if (game.state === "finished") return;
+  game.state = "finished";
+  game.winner = winner.name;
+  winner.state = "victory";
+  winner.isChampion = true;
+
+  championData = {
+    name: winner.name,
+    color: winner.color,
+    faceColor: winner.faceColor
+  };
+
+  restartButton.style.display = "block";
+  createFloatingText(winner.x, winner.y - 150, "CHAMPION!", "#ffe600");
+}
+
+function drawWinnerScreen() {
+  if (game.state !== "finished") return;
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,.55)";
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.textAlign = "center";
+  ctx.font = "bold 72px Arial";
+  ctx.lineWidth = 9;
+  ctx.strokeStyle = "#111";
+  ctx.fillStyle = "#ffe600";
+  ctx.strokeText("WINNER!", width / 2, height * .35);
+  ctx.fillText("WINNER!", width / 2, height * .35);
+
+  ctx.font = "bold 48px Arial";
+  ctx.fillStyle = "#fff";
+  ctx.strokeText(game.winner, width / 2, height * .47);
+  ctx.fillText(game.winner, width / 2, height * .47);
+
+  ctx.font = "bold 24px Arial";
+  ctx.fillText("The champion returns next round!", width / 2, height * .55);
+  ctx.restore();
+}
+
+function nextFight() {
+  particles.length = 0;
+  floatingTexts.length = 0;
+  game.state = "countdown";
+  game.countdown = 3;
+  game.countdownTimer = 0;
+  game.winner = "";
+  game.screenShake = 0;
+  game.round++;
+
+  createNextFight();
+  restartButton.style.display = "none";
+}
+
+restartButton.addEventListener("click", nextFight);
+
+createFirstFight();
+
+function loop(now) {
+  const dt = Math.min(2, (now - previousTime) / 16.67);
+  previousTime = now;
+  game.time += dt;
+
+  updateCountdown(dt);
+  monkey1.update(dt);
+  monkey2.update(dt);
+  updateParticles(dt);
+  updateFloatingTexts(dt);
+
+  let sx = 0, sy = 0;
+  if (game.screenShake > 0) {
+    sx = (Math.random() - .5) * game.screenShake;
+    sy = (Math.random() - .5) * game.screenShake;
+    game.screenShake *= .84;
+  }
+
+  ctx.save();
+  ctx.translate(sx, sy);
+  drawBackground();
+  monkey1.draw();
+  monkey2.draw();
+  drawParticles();
+  drawFloatingTexts();
+  ctx.restore();
+
+  drawHealthBars();
+  drawCountdown();
+  drawWinnerScreen();
+
+  requestAnimationFrame(loop);
+}
+
+
+const bracketButton=document.getElementById("bracketButton");
+const bracketPanel=document.getElementById("bracketPanel");
+const bracketList=document.getElementById("bracketList");
+const closeBracketButton=document.getElementById("closeBracketButton");
+
+bracketButton.onclick=()=>{
+ bracketPanel.style.display=bracketPanel.style.display==="block"?"none":"block";
+};
+closeBracketButton.onclick=()=>{
+ bracketPanel.style.display="none";
+};
+
+const oldEndFight=endFight;
+endFight=function(winner){
+ oldEndFight(winner);
+ bracketHistory.push("Round "+game.round+": "+winner.name+" defeated "+(winner===monkey1?monkey2.name:monkey1.name));
+ bracketList.innerHTML=bracketHistory.map((x,i)=>"<div><b>"+(i+1)+".</b> "+x+"</div>").join("<hr>");
+ bracketButton.style.display="block";
+};
+requestAnimationFrame(loop);
+</script>
+
+</body>
+</html>
