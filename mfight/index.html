@@ -155,114 +155,117 @@ addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
 const monkeyNames = [
-"Banana Bandit",
-"Coconut Kong",
-"Jungle Jack",
-"Mango Mike",
-"Cheeky Chimp",
-"Bongo Banana",
-"King Plantain",
-"Monkey McGee",
-"Peanut Primate",
-"Captain Coconut",
-"Gorilla Greg",
-"Swinging Sammy",
-"Banana Bob",
-"Jungle Joe",
-"Chimpy Charlie",
-"Mighty Momo",
-"Vine Victor",
-"Cocoa Kong",
-"Bamboo Bruno",
-"Primate Pete",
-"Monkey Max",
-"Banana Bruno",
-"Jungle Jester",
-"Chimp Champion",
-"Treetop Tony",
-"Funky Monkey",
-"Coconut Crusher",
-"Banana Bruiser",
-"Vine Viper",
-"Mango Mayhem",
-"Plantain Puncher",
-"Treetop Titan",
-"Barrel Barry",
-"Jungle Jasper",
-"Banana Blitz",
-"Chimpzilla",
-"Sir Bananas",
-"Professor Primate",
-"Captain Chimp",
-"General Gorilla",
-"Tiny Tamarin",
-"Macaque Max",
-"Howler Hank",
-"Bobo the Brave",
-"Congo Carl",
-"Banana Beast",
-"Tree Top Tim",
-"Mango Marshal",
-"King Koko",
-"Captain Canopy",
-"Forest Fred",
-"Palm Pete",
-"Banana Bonk",
-"Chimp Chaser",
-"Crazy Coco",
-"Banana Biscuit",
-"Lord Lemur",
-"Monkey Meteor",
-"Rocket Rango",
-"Turbo Tamarin",
-"Cannon Chimp",
-"Sneaky Simi",
-"Alpha Ape",
-"Omega Orang",
-"Banana Bolt",
-"Banana Boom",
-"Colonel Coconut",
-"Major Monkey",
-"Doctor Banana",
-"Jungle Jet",
-"Tree Swing Steve",
-"Captain Peel",
-"Monkey Maverick",
-"Vine Vandal",
-"Coco Crusher",
-"Bamboo Brawler",
-"Raging Rhesus",
-"Mischief Mike",
-"Banana Baron",
-"King Canopy",
-"Swing Sultan",
-"Palm Phantom",
-"Jungle Knight",
-"Coco Comet",
-"Banana Ninja",
-"Shadow Chimp",
-"Wild Winston",
-"Barrel Boss",
-"Monkey Matrix",
-"Golden Gorilla",
-"Storm Swinger",
-"Forest Fury",
-"Banana Rocket",
-"Primate Prime",
-"Tree Titan",
-"Banana Blaster",
-"Captain Chaos",
-"Monkey Monarch",
-"Iron Ape",
-"Silver Simian",
-"Bronze Baboon",
-"Electric Orangutan",
-"Cosmic Chimp",
-"Meteor Monkey",
-"Thunder Tail",
-"Jungle Giant",
-"Banana Knight",
-"Mango Master"
+  "Banana Bandit",
+  "Coconut Kong",
+  "Jungle Jack",
+  "Mango Mike",
+  "Cheeky Chimp",
+  "Bongo Banana",
+  "King Plantain",
+  "Monkey McGee",
+  "Peanut Primate",
+  "Captain Coconut",
+  "Gorilla Greg",
+  "Swinging Sammy",
+  "Banana Bob",
+  "Jungle Joe",
+  "Chimpy Charlie",
+  "Mighty Momo",
+  "Vine Victor",
+  "Cocoa Kong",
+  "Bamboo Bruno",
+  "Primate Pete",
+  "Monkey Max",
+  "Banana Bruno",
+  "Jungle Jester",
+  "Chimp Champion",
+  "Treetop Tony",
+  "Funky Monkey",
+  "Coconut Crusher",
+  "Banana Bruiser",
+  "Vine Viper",
+  "Mango Mayhem",
+  "Plantain Puncher",
+  "Treetop Titan",
+  "Barrel Barry",
+  "Jungle Jasper",
+  "Banana Blitz",
+  "Chimpzilla",
+  "Sir Bananas",
+  "Professor Primate",
+  "Captain Chimp",
+  "General Gorilla",
+  "Tiny Tamarin",
+  "Macaque Max",
+  "Howler Hank",
+  "Bobo the Brave",
+  "Congo Carl",
+  "Banana Beast",
+  "Tree Top Tim",
+  "Mango Marshal",
+  "King Koko",
+  "Captain Canopy",
+  "Forest Fred",
+  "Palm Pete",
+  "Banana Bonk",
+  "Chimp Chaser",
+  "Crazy Coco",
+  "Banana Biscuit",
+  "Lord Lemur",
+  "Monkey Meteor",
+  "Rocket Rango",
+  "Turbo Tamarin",
+  "Cannon Chimp",
+  "Sneaky Simi",
+  "Alpha Ape",
+  "Omega Orang",
+  "Banana Bolt",
+  "Banana Boom",
+  "Colonel Coconut",
+  "Major Monkey",
+  "Doctor Banana",
+  "Jungle Jet",
+  "Tree Swing Steve",
+  "Captain Peel",
+  "Monkey Maverick",
+  "Vine Vandal",
+  "Coco Crusher",
+  "Bamboo Brawler",
+  "Raging Rhesus",
+  "Mischief Mike",
+  "Banana Baron",
+  "King Canopy",
+  "Swing Sultan",
+  "Palm Phantom",
+  "Jungle Knight",
+  "Coco Comet",
+  "Banana Ninja",
+  "Shadow Chimp",
+  "Wild Winston",
+  "Barrel Boss",
+  "Monkey Matrix",
+  "Golden Gorilla",
+  "Storm Swinger",
+  "Forest Fury",
+  "Banana Rocket",
+  "Primate Prime",
+  "Tree Titan",
+  "Banana Blaster",
+  "Captain Chaos",
+  "Monkey Monarch",
+  "Iron Ape",
+  "Silver Simian",
+  "Bronze Baboon",
+  "Electric Orangutan",
+  "Cosmic Chimp",
+  "Meteor Monkey",
+  "Thunder Tail",
+  "Jungle Giant",
+  "Banana Knight",
+  "Mango Master",
+  "Rishaan Das",
+  "stinkmonkey",
+  "Stank monkey"
 ];
 
 const styles = [
@@ -707,7 +710,32 @@ const arenaThemes = [
   { name:"Stormy Canopy", sky1:"#26354b", sky2:"#65758d", ground:"#263f34", grass:"#456653", sun:"#cfd8e8" },
   { name:"Candy Jungle", sky1:"#ff9ed0", sky2:"#ffe0f2", ground:"#86548d", grass:"#ba70bf", sun:"#fff08a" },
   { name:"Ancient Ruins", sky1:"#c8aa75", sky2:"#f2e1bd", ground:"#665a42", grass:"#8d7c55", sun:"#fff0b0" },
-  { name:"Neon Jungle", sky1:"#12142f", sky2:"#35145f", ground:"#133d35", grass:"#1c8a67", sun:"#67fff1" }
+  { name:"Neon Jungle", sky1:"#12142f", sky2:"#35145f", ground:"#133d35", grass:"#1c8a67", sun:"#67fff1" },
+  { name:"Banana Bay", sky1:"#60c8ff", sky2:"#dff7ff", ground:"#547a36", grass:"#7eb54d", sun:"#ffe36b" },
+  { name:"Coconut Coast", sky1:"#65d5e8", sky2:"#e1fbff", ground:"#8a7046", grass:"#6f9b4d", sun:"#fff1a3" },
+  { name:"Bamboo Basin", sky1:"#89c98f", sky2:"#e7f6d9", ground:"#365b32", grass:"#609456", sun:"#fff0a0" },
+  { name:"Mango Marsh", sky1:"#a7c889", sky2:"#edf0b2", ground:"#4d6741", grass:"#78965b", sun:"#ffd86b" },
+  { name:"Howler Highlands", sky1:"#7ea7cf", sky2:"#d9e7f1", ground:"#455c42", grass:"#73875d", sun:"#f6ecbf" },
+  { name:"Primate Plaza", sky1:"#86c7ef", sky2:"#f1f7ff", ground:"#6e6658", grass:"#6f9955", sun:"#ffdc68" },
+  { name:"Tamarin Temple", sky1:"#d3a55e", sky2:"#f6dfad", ground:"#5b4936", grass:"#81734d", sun:"#fff1b3" },
+  { name:"Gorilla Gorge", sky1:"#698ca6", sky2:"#cadce5", ground:"#3c4d42", grass:"#607964", sun:"#eaf2d5" },
+  { name:"Chimp Canyon", sky1:"#d98255", sky2:"#f4c49e", ground:"#6e4935", grass:"#8d6642", sun:"#ffd27d" },
+  { name:"Monkey Mountain", sky1:"#74a9dc", sky2:"#e6f3ff", ground:"#485d52", grass:"#718c6b", sun:"#fff4bf" },
+  { name:"Plantain Plateau", sky1:"#9fc6e5", sky2:"#eff8ff", ground:"#647047", grass:"#8d9c61", sun:"#ffe68a" },
+  { name:"Barrel Bridge", sky1:"#77b6db", sky2:"#e4f4fb", ground:"#70523c", grass:"#708c4e", sun:"#ffe49b" },
+  { name:"Riverbank Rumble", sky1:"#6fbce0", sky2:"#d9f3fa", ground:"#536a4b", grass:"#769958", sun:"#ffe173" },
+  { name:"Waterfall Arena", sky1:"#68bde8", sky2:"#e1f7ff", ground:"#405f50", grass:"#609572", sun:"#f8f5cf" },
+  { name:"Papaya Paradise", sky1:"#ff9c72", sky2:"#ffe3c7", ground:"#7a593c", grass:"#86a153", sun:"#fff099" },
+  { name:"Guava Gardens", sky1:"#e78aae", sky2:"#fde2ec", ground:"#5f6340", grass:"#83945e", sun:"#ffe995" },
+  { name:"Kiwi Kingdom", sky1:"#91c58c", sky2:"#e9f5d6", ground:"#52633d", grass:"#769453", sun:"#fff3a0" },
+  { name:"Dragonfruit Dunes", sky1:"#dc73a6", sky2:"#f7cfe3", ground:"#855f55", grass:"#9b7a62", sun:"#ffe5a8" },
+  { name:"Bongo Beach", sky1:"#62c9ee", sky2:"#e8fbff", ground:"#9a7e54", grass:"#75a25b", sun:"#fff08c" },
+  { name:"Swinging Swamp", sky1:"#748f76", sky2:"#c8d8b9", ground:"#384b36", grass:"#56734c", sun:"#dbe5a0" },
+  { name:"Moon Monkey Crater", sky1:"#111936", sky2:"#39436d", ground:"#353746", grass:"#555967", sun:"#f7f4dc" },
+  { name:"Comet Canopy", sky1:"#221c57", sky2:"#6c54a8", ground:"#263d34", grass:"#3f6f58", sun:"#bff6ff" },
+  { name:"Pixel Primate Park", sky1:"#28376f", sky2:"#8f6bc7", ground:"#214c44", grass:"#28a876", sun:"#7cfff3" },
+  { name:"Arcade Ape Arena", sky1:"#16162d", sky2:"#5b226e", ground:"#20372d", grass:"#18a46d", sun:"#ff73de" },
+  { name:"Rishaan’s Rainforest", sky1:"#72bdf0", sky2:"#dff4ff", ground:"#345f3b", grass:"#55a45d", sun:"#ffe36e" }
 ];
 
 function generateMonkeyName(excluded = []) {
@@ -733,6 +761,54 @@ function randomName(excluded = []) {
   return generateMonkeyName(excluded);
 }
 
+function rememberDefeatedMonkey(monkey) {
+  const existingIndex = defeatedMonkeys.findIndex(entry => entry.name === monkey.name);
+
+  const savedMonkey = {
+    name: monkey.name,
+    color: monkey.color,
+    faceColor: monkey.faceColor,
+    losses: (monkey.losses || 0) + 1,
+    returns: monkey.returns || 0,
+    streak: 0
+  };
+
+  if (existingIndex >= 0) {
+    savedMonkey.losses = defeatedMonkeys[existingIndex].losses + 1;
+    savedMonkey.returns = defeatedMonkeys[existingIndex].returns || 0;
+    defeatedMonkeys[existingIndex] = savedMonkey;
+  } else {
+    defeatedMonkeys.push(savedMonkey);
+  }
+
+  // Keep the pool from growing forever.
+  if (defeatedMonkeys.length > 80) {
+    defeatedMonkeys.shift();
+  }
+}
+
+function getReturningChallenger(excludedNames = []) {
+  const available = defeatedMonkeys.filter(monkey => !excludedNames.includes(monkey.name));
+
+  // Once defeated monkeys exist, there is a 35% chance one returns.
+  if (available.length === 0 || Math.random() >= 0.35) {
+    return null;
+  }
+
+  const chosen = randomItem(available);
+  chosen.returns = (chosen.returns || 0) + 1;
+
+  return {
+    name: chosen.name,
+    color: chosen.color,
+    faceColor: chosen.faceColor,
+    losses: chosen.losses || 1,
+    returns: chosen.returns,
+    streak: 0,
+    isReturning: true
+  };
+}
+
 const game = {
   state: "countdown",
   countdown: 3,
@@ -746,11 +822,12 @@ const game = {
 
 const particles = [];
 const floatingTexts = [];
+const defeatedMonkeys = [];
 let championData = null;
 let monkey1, monkey2;
 
 class Monkey {
-  constructor({ name, color, faceColor, x, direction, isChampion = false, fighterType = null, streak = 0 }) {
+  constructor({ name, color, faceColor, x, direction, isChampion = false, fighterType = null, streak = 0, isReturning = false, returns = 0, losses = 0 }) {
     this.name = name;
     this.color = color;
     this.faceColor = faceColor;
@@ -774,6 +851,9 @@ class Monkey {
     this.isChampion = isChampion;
     this.fighterType = fighterTypes[0];
     this.streak = streak;
+    this.isReturning = isReturning;
+    this.returns = returns;
+    this.losses = losses;
     this.aiDelay = Math.random() * 25;
   }
 
@@ -1140,7 +1220,10 @@ function makeMonkey(data, x, direction, isChampion = false) {
     x,
     direction,
     isChampion,
-    streak: data.streak || 0
+    streak: data.streak || 0,
+    isReturning: data.isReturning || false,
+    returns: data.returns || 0,
+    losses: data.losses || 0
   });
 }
 
@@ -1161,12 +1244,19 @@ function createFirstFight() {
 function createNextFight() {
   const championLeft = Math.random() < 0.5;
   const challengerStyle = randomItem(styles);
-  const challenger = {
-    name: randomName([championData.name]),
-    fighterType: randomItem(fighterTypes),
-    streak: 0,
-    ...challengerStyle
-  };
+
+  let challenger = getReturningChallenger([championData.name]);
+
+  if (!challenger) {
+    challenger = {
+      name: randomName([championData.name]),
+      streak: 0,
+      isReturning: false,
+      returns: 0,
+      losses: 0,
+      ...challengerStyle
+    };
+  }
 
   if (championLeft) {
     monkey1 = makeMonkey(championData, width * 0.25, 1, true);
@@ -1267,12 +1357,6 @@ function drawHealthBars() {
   drawHealthBar(width - barWidth - 40, 35, barWidth, 30, monkey2, true);
 
   ctx.save();
-  ctx.fillStyle = "rgba(0,0,0,0.62)";
-  ctx.strokeStyle = "rgba(255,255,255,0.25)";
-  ctx.lineWidth = 2;
-  roundRect(ctx, width / 2 - 115, 18, 230, 62, 14);
-  ctx.fill();
-  ctx.stroke();
 
   ctx.fillStyle = "#fff";
   ctx.strokeStyle = "#111";
@@ -1304,7 +1388,11 @@ function drawHealthBar(x, y, w, h, monkey, reverse) {
   const crown = monkey.isChampion ? " 👑" : "";
   const streakText = monkey.streak > 0 ? " • " + monkey.streak + " wins" : "";
   const topText = monkey.name + crown + "  " + Math.ceil(monkey.health);
-  const bottomText = monkey.isChampion ? ("Champion" + streakText) : "Challenger";
+  const bottomText = monkey.isChampion
+    ? ("Champion" + streakText)
+    : (monkey.isReturning
+        ? "Returning Challenger • comeback " + monkey.returns
+        : "Challenger");
 
   ctx.textAlign = reverse ? "right" : "left";
 
@@ -1488,10 +1576,15 @@ function nextFight() {
   createNextFight();
   setTimeout(() => {
     if (game.state === "countdown") {
-      createFloatingText(width / 2, height * 0.28, randomItem([
-        "A NEW CHALLENGER!","TITLE DEFENSE!","JUNGLE SHOWDOWN!",
-        "MONKEY MAYHEM!","CHAMPIONSHIP FIGHT!","RUMBLE IN THE CANOPY!"
-      ]), "#ffffff");
+      const challenger = monkey1.isChampion ? monkey2 : monkey1;
+      const introText = challenger.isReturning
+        ? challenger.name + " RETURNS!"
+        : randomItem([
+            "A NEW CHALLENGER!","TITLE DEFENSE!","JUNGLE SHOWDOWN!",
+            "MONKEY MAYHEM!","CHAMPIONSHIP FIGHT!","RUMBLE IN THE CANOPY!"
+          ]);
+
+      createFloatingText(width / 2, height * 0.28, introText, "#ffffff");
     }
   }, 150);
   restartButton.style.display = "none";
@@ -1554,6 +1647,7 @@ endFight=function(winner){
  const loser = winner===monkey1 ? monkey2 : monkey1;
  bracketHistory.push(
    "Round "+game.round+": "+winner.name+" defeated "+loser.name+
+   (loser.isReturning ? " in a comeback fight" : "")+
    " with "+Math.ceil(winner.health)+" HP left — streak: "+winner.streak
  );
  bracketList.innerHTML=bracketHistory.map((x,i)=>"<div><b>"+(i+1)+".</b> "+x+"</div>").join("<hr>");
