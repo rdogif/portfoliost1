@@ -134,10 +134,6 @@ function playWinnerSound() {
   setTimeout(() => playTone(784, 0.28, "sine", 0.09), 340);
 }
 
-  soundEnabled = !soundEnabled;
-  soundButton.textContent = soundEnabled ? "🔊 Sound On" : "🔇 Sound Off";
-});
-
 document.addEventListener("pointerdown", initAudio, { once: true });
 
 
