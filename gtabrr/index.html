@@ -86,18 +86,6 @@
       overflow-wrap: anywhere;
     }
 
-    .again {
-      margin-top: 18px;
-      padding: 9px 22px;
-      border: 2px solid #83d3e5;
-      border-radius: 8px;
-      color: #178fc0;
-      background: #eafcff;
-      font-size: 15px;
-      cursor: pointer;
-    }
-    .again:hover { background: #fff; }
-
     @media (max-width: 650px) {
       .page { width: 100%; padding: 28px 12px; border-width: 6px; }
       .generator { min-height: 520px; padding: 30px 18px 40px; border-width: 6px; border-radius: 25px; }
@@ -127,7 +115,6 @@
 
       <p class="label">Your new baby name is:</p>
       <div class="result" id="result" aria-live="polite">Select Boy or Girl</div>
-      <button class="again" id="again" type="button" hidden>Generate another</button>
     </section>
   </main>
 
@@ -208,7 +195,11 @@
       'Locked In','Negative Aura','Goofy Ahh','Yapmaster','Unc Status',
       'Cooked','Delulu','Mango Mango Mango','Bing Chilling','Camera Man',
       'Speaker Man','TV Man','Titan Cameraman','Freddy Fazbear','Huggy Wuggy',
-      'Capybara','Spaghettino','Mozzarello','Pepperoni','Espressino'
+      'Capybara','Spaghettino','Mozzarello','Pepperoni','Espressino',
+      'Chicken Jockey','Steve Lava Chicken','Creeper Aw Man','Herobrine',
+      'Sigma Boy','Mason 67','Balkan Rage','German Stare','Jamaican Smile',
+      'Phonk Trollface','Subway Surfer','Family Guy Clip','Sludge Content',
+      'Brainrot Final Boss','Those Who Know'
     ];
 
     const boyLastParts = [
@@ -218,7 +209,10 @@
       'Sigma Pants','Toiletson','Crocodilo Junior','Patapim Senior','Brainrot IV',
       'W Rizz','No Aura','Sidequest Jones','Yappington','Bambino',
       'Linguini','Dragonini','Penguinoni','Toasterino','Goblino',
-      'Watermelondrillo','Ananasini','Octopussini','Camelino','Bandito'
+      'Watermelondrillo','Ananasini','Octopussini','Camelino','Bandito',
+      'Still Water','Adrenaline','Noradrenaline','Mango Phonk','Balkan Edition',
+      'Winter Arc','Final Boss','Prime Minister','The Sequel','Part 67',
+      'Ultra Pro Max','From Ohio','At Three AM','No Cap','Deluxe Edition'
     ];
 
     const girlFirstParts = [
@@ -230,7 +224,11 @@
       'Locked In','Negative Aura','Goofy Ahh','Yap Queen','Auntie Status',
       'Cooked','Delulu','Mango Mango Maya','Bing Chilling','Camera Woman',
       'Speaker Woman','TV Woman','Titan Camerawoman','Freddy Fazbearina',
-      'Capybara','Spaghettina','Mozzarella','Pepperonina','Espressina'
+      'Capybara','Spaghettina','Mozzarella','Pepperonina','Espressina',
+      'Chicken Jockey','Alex Lava Chicken','Creeper Aw Maam','Herobrina',
+      'Sigma Girl','Madison 67','Balkan Rage','German Stare','Jamaican Smile',
+      'Phonk Trollface','Subway Surfer','Family Guy Clip','Sludge Content',
+      'Brainrot Final Boss','Those Who Know'
     ];
 
     const girlLastParts = [
@@ -240,17 +238,16 @@
       'Sigma Pants','Toiletina','Crocodila Junior','Patapima Senior','Brainrot IV',
       'W Rizz','No Aura','Sidequest Jones','Yappington','Bambina',
       'Linguina','Dragonina','Penguinina','Toasterina','Goblina',
-      'Watermelonella','Ananasina','Octopussina','Camelina','Bandita'
+      'Watermelonella','Ananasina','Octopussina','Camelina','Bandita',
+      'Still Water','Adrenaline','Noradrenaline','Mango Phonk','Balkan Edition',
+      'Winter Arc','Final Boss','Prime Minister','The Sequel','Part 67',
+      'Ultra Pro Max','From Ohio','At Three AM','No Cap','Deluxe Edition'
     ];
 
     function addBrainrotCombinations(target, firstParts, lastParts) {
       for (let firstIndex = 0; firstIndex < firstParts.length; firstIndex++) {
         for (let lastIndex = 0; lastIndex < lastParts.length; lastIndex++) {
-          // Use a repeatable pattern to create hundreds of combinations
-          // without making every possible name feel almost identical.
-          if ((firstIndex * 3 + lastIndex * 5) % 4 !== 0) {
-            target.push(`${firstParts[firstIndex]} ${lastParts[lastIndex]}`);
-          }
+          target.push(`${firstParts[firstIndex]} ${lastParts[lastIndex]}`);
         }
       }
     }
@@ -302,14 +299,12 @@
 
       previousName = name;
       document.getElementById('result').textContent = name;
-      document.getElementById('again').hidden = false;
       document.getElementById('boy').classList.toggle('selected', gender === 'boy');
       document.getElementById('girl').classList.toggle('selected', gender === 'girl');
     }
 
     document.getElementById('boy').addEventListener('click', () => generateName('boy'));
     document.getElementById('girl').addEventListener('click', () => generateName('girl'));
-    document.getElementById('again').addEventListener('click', () => generateName(selectedGender));
   </script>
 </body>
 </html>
