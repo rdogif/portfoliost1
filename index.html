@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <title>Rishaan's Test</title>
 
     <style>
@@ -14,10 +15,10 @@
         }
 
         header {
+            padding: 30px 20px;
             background: white;
             border-bottom: 1px solid #ddd;
             text-align: center;
-            padding: 30px;
         }
 
         header h1 {
@@ -26,35 +27,74 @@
         }
 
         header p {
+            margin: 8px 0 0;
             color: #666;
-            margin-top: 8px;
+        }
+
+        .search-area {
+            max-width: 700px;
+            margin: 30px auto 0;
+            padding: 0 20px;
+        }
+
+        #projectSearch {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background: white;
+            font-family: Arial, sans-serif;
+            font-size: 16px;
+        }
+
+        #projectSearch:focus {
+            border-color: #222;
+            outline: 2px solid #222;
+        }
+
+        #resultCount {
+            margin: 10px 2px 0;
+            color: #777;
+            font-size: 14px;
+        }
+
+        #noResults {
+            display: none;
+            margin: 35px 0;
+            color: #777;
+            text-align: center;
         }
 
         .container {
             max-width: 700px;
-            margin: 40px auto;
+            margin: 30px auto 40px;
             padding: 0 20px;
         }
 
         .project {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 8px;
             padding: 20px;
             margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: white;
         }
 
         .project h2 {
-            margin-top: 0;
+            margin: 0 0 10px;
+        }
+
+        .project p {
+            margin: 0 0 16px;
+            line-height: 1.5;
         }
 
         .button {
             display: inline-block;
             padding: 10px 18px;
-            background: #222;
-            color: white;
-            text-decoration: none;
             border-radius: 5px;
+            color: white;
+            background: #222;
+            text-decoration: none;
             transition: background 0.2s;
         }
 
@@ -62,13 +102,29 @@
             background: #444;
         }
 
+        .button:focus-visible {
+            outline: 3px solid #999;
+            outline-offset: 3px;
+        }
+
         footer {
-            text-align: center;
             padding: 30px;
             color: #777;
+            text-align: center;
+        }
+
+        @media (max-width: 500px) {
+            header h1 {
+                font-size: 29px;
+            }
+
+            .project {
+                padding: 17px;
+            }
         }
     </style>
 </head>
+
 <body>
 
 <header>
@@ -76,71 +132,140 @@
     <p>A collection of my projects.</p>
 </header>
 
-<div class="container">
+<div class="search-area">
+    <input
+        type="search"
+        id="projectSearch"
+        placeholder="Search projects..."
+        aria-label="Search projects"
+        autocomplete="off"
+    >
+
+    <p id="resultCount">4 projects</p>
+</div>
+
+<main class="container" id="projectContainer">
 
     <div class="project">
-        <h2>Simple text save and load(old)</h2>
-        <p>Rishaans first test project: Write text, save it as a JSON file, and load it later.</p>
+        <h2>Simple text save and load (old)</h2>
+
+        <p>
+            Rishaan's first test project: Write text, save it as a
+            JSON file, and load it later.
+        </p>
 
         <a class="button" href="save-and-load/">
             Open Project
         </a>
-
+    </div>
 
     <div class="project">
         <h2>Name generator for stupid babies</h2>
-        <p>stupid baby name generator inspired by gta</p>
+
+        <p>
+            Stupid baby name generator inspired by GTA.
+        </p>
 
         <a class="button" href="gtabrr/">
             Open Generator
         </a>
-
+    </div>
 
     <div class="project">
         <h2>Simple blackjack game</h2>
-        <p>just play it</p>
+
+        <p>
+            Just play it.
+        </p>
 
         <a class="button" href="blackjack/">
             Open Game
         </a>
- 
+    </div>
 
     <div class="project">
-        <h2>Watch monkey's fight</h2>
-        <p>Monkey tournament</p>
+        <h2>Watch monkeys fight</h2>
+
+        <p>
+            Monkey tournament.
+        </p>
 
         <a class="button" href="mfight/">
             Open Simulation
         </a>
     </div>
-    <!--
-    ==========================================
-    HOW TO ADD ANOTHER PROJECT
-    ==========================================
 
-    Copy everything below and paste it above this comment.
+    <p id="noResults">
+        No projects found.
+    </p>
+
+    <!--
+    HOW TO ADD ANOTHER PROJECT:
+
+    Copy this section and paste it above the "noResults" paragraph:
 
     <div class="project">
         <h2>Project Name</h2>
-        <p>Short description.</p>
+
+        <p>
+            Short description.
+        </p>
 
         <a class="button" href="project-folder/">
             Open Project
         </a>
     </div>
 
-    Then create a folder named:
+    Then make a folder named:
 
-    project-folder/
+    project-folder
 
-    and put your project's index.html inside it.
+    Put that project's index.html inside the folder.
     -->
 
-</div>
+</main>
 
 <footer>
     Made by Rishaan
 </footer>
+
+<script>
+    const searchBar = document.getElementById("projectSearch");
+    const projects = document.querySelectorAll(".project");
+    const noResults = document.getElementById("noResults");
+    const resultCount = document.getElementById("resultCount");
+
+    function updateSearch() {
+        const searchText = searchBar.value.toLowerCase().trim();
+        let visibleProjects = 0;
+
+        projects.forEach(function (project) {
+            const projectText = project.textContent.toLowerCase();
+            const matchesSearch = projectText.includes(searchText);
+
+            if (matchesSearch) {
+                project.style.display = "block";
+                visibleProjects++;
+            } else {
+                project.style.display = "none";
+            }
+        });
+
+        if (visibleProjects === 0) {
+            noResults.style.display = "block";
+        } else {
+            noResults.style.display = "none";
+        }
+
+        if (visibleProjects === 1) {
+            resultCount.textContent = "1 project";
+        } else {
+            resultCount.textContent = visibleProjects + " projects";
+        }
+    }
+
+    searchBar.addEventListener("input", updateSearch);
+</script>
 
 </body>
 </html>
