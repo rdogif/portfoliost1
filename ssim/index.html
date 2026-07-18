@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Rishaan's Slicing Test</title>
+<title>Rishaan's Slicing Test - Physics Overhaul</title>
 <style>
   :root {
     --panel: #fff;
@@ -137,21 +137,6 @@
   #help.hidden {
     opacity: 0;
   }
-
-  #pauseBadge {
-    display: none;
-    position: fixed;
-    top: 18px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #111;
-    color: white;
-    padding: 7px 13px;
-    font-family: Consolas, monospace;
-    font-size: 13px;
-    letter-spacing: 1px;
-  }
-
 
   .spawn-browser {
     margin-top: 8px;
@@ -300,17 +285,19 @@
   }
 
   .spawn-option {
-    min-height: 122px;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 5px;
+    height: 134px;
+    min-height: 134px;
+    display: grid;
+    grid-template-rows: 68px minmax(2.5em, auto) auto;
+    align-content: start;
+    gap: 6px;
     border: 1px solid #000;
     padding: 5px;
     background: #fff;
     color: #000;
     text-align: left;
     font-size: 11px;
+    overflow: hidden;
   }
 
   .spawn-option:hover {
@@ -328,8 +315,7 @@
 
   .spawn-preview {
     width: 100%;
-    aspect-ratio: 16 / 9;
-    height: auto;
+    height: 68px;
     display: block;
     background: #f7f7f7;
     border: 1px solid currentColor;
@@ -343,6 +329,8 @@
     overflow-wrap: anywhere;
     color: inherit;
     font-weight: 600;
+    position: relative;
+    z-index: 1;
   }
 
   .spawn-option small {
@@ -387,8 +375,9 @@
   <div class="actions">
     <button id="spawnTen">drop 10</button>
     <button id="reset">reset</button>
-    <button id="pause">pause</button>
-    <button id="slow">slow motion</button>
+    <button id="pause" type="button" aria-pressed="false">Pause</button>
+    <button id="slow" type="button" aria-pressed="false" title="S">slow motion</button>
+    <button id="impact" class="wide" type="button" aria-pressed="false" title="I">Impact: off</button>
   </div>
 </section>
 
@@ -419,9 +408,8 @@
 </section>
 
 
-<div id="pauseBadge">PAUSED</div>
 <div id="help">
-  drag across shapes to slice · grab and throw pieces · right-click to spawn · space pauses · R resets
+  drag to slice · grab and throw · right-click to spawn · Space pause · S slow · I impact · R reset
 </div>
 
 <script>
@@ -438,17 +426,13 @@
     selectedSpawn: document.getElementById("selectedSpawn"),
     sizeSlider: document.getElementById("sizeSlider"),
     sizeValue: document.getElementById("sizeValue"),
-    gravity: document.getElementById("gravity"),
-    bounce: document.getElementById("bounce"),
-    airDrag: document.getElementById("airDrag"),
-    gravityValue: document.getElementById("gravityValue"),
-    bounceValue: document.getElementById("bounceValue"),
-    dragValue: document.getElementById("dragValue"),
-    
     pause: document.getElementById("pause"),
     slow: document.getElementById("slow"),
-    pauseBadge: document.getElementById("pauseBadge")
+    impact: document.getElementById("impact"),
+    help: document.getElementById("help")
   };
+
+  ui.help.textContent = "drag to slice \u00b7 grab and throw \u00b7 right-click to spawn \u00b7 Space pause \u00b7 S slow \u00b7 I impact \u00b7 R reset";
 
   let width = 0;
   let height = 0;
@@ -459,14 +443,21 @@
   let selectedSpawnCategory = "all";
   let paused = false;
   let slowMotion = false;
+  let impactMode = false;
   let cuts = 0;
   let idCounter = 1;
   let sliceStart = null;
   let heldBody = null;
   let heldLocalPoint = null;
+  let drawSpawnStart = null;
+  let weldDraftParts = [];
+  let weldDraftColor = null;
   let mouseTrail = [];
   let wind = 0;
   let flash = 0;
+  let previousTime = performance.now();
+  let helpRemaining = 5;
+  const impactBreakQueue = new Map();
 
   const pointer = { x: 0, y: 0, down: false };
 
@@ -595,18 +586,144 @@
     return triangles.length ? triangles : [polygon];
   }
 
+  function isConvexPolygon(vertices) {
+    let direction=0;
+    for (let i=0;i<vertices.length;i++) {
+      const turn=cross(
+        sub(vertices[(i+1)%vertices.length],vertices[i]),
+        sub(vertices[(i+2)%vertices.length],vertices[(i+1)%vertices.length])
+      );
+      if (Math.abs(turn)<1e-7) continue;
+      const sign=Math.sign(turn);
+      if (direction && sign!==direction) return false;
+      direction=sign;
+    }
+    return true;
+  }
+
+  function collisionParts(vertices) {
+    const polygon=makeCCW(vertices.map(point=>({...point})));
+    return isConvexPolygon(polygon) ? [polygon] : triangulate(polygon);
+  }
+
+  function polygonPolarMoment(vertices) {
+    let moment=0;
+    for (let i=0;i<vertices.length;i++) {
+      const a=vertices[i];
+      const b=vertices[(i+1)%vertices.length];
+      const areaCross=cross(a,b);
+      moment+=areaCross*(dot(a,a)+dot(a,b)+dot(b,b));
+    }
+    return Math.abs(moment)/12;
+  }
+
+  function polygonMinimumThickness(vertices) {
+    let minimum=Infinity;
+    for (let i=0;i<vertices.length;i++) {
+      const edge=sub(vertices[(i+1)%vertices.length],vertices[i]);
+      if (length(edge)<1e-7) continue;
+      const projection=project(vertices,normalize(perpendicular(edge)));
+      minimum=Math.min(minimum,projection.max-projection.min);
+    }
+    return Number.isFinite(minimum) ? Math.max(2,minimum) : 12;
+  }
+
+  const MATERIAL_PRESETS = {
+    neutral: {density:1, restitution:.10, staticFriction:.62, dynamicFriction:.46, airDrag:.08, angularDrag:.07, gravityScale:1, floorDrag:1, sleepDelay:.42, impactStrength:720, shatterCount:2},
+    metal:   {density:2.25, restitution:.055, staticFriction:.56, dynamicFriction:.40, airDrag:.045, angularDrag:.045, gravityScale:1, floorDrag:.9, sleepDelay:.34, impactStrength:1150, shatterCount:1},
+    stone:   {density:1.65, restitution:.075, staticFriction:.72, dynamicFriction:.54, airDrag:.055, angularDrag:.06, gravityScale:1, floorDrag:1.15, sleepDelay:.34, impactStrength:820, shatterCount:3},
+    wood:    {density:.82, restitution:.13, staticFriction:.68, dynamicFriction:.50, airDrag:.10, angularDrag:.09, gravityScale:1, floorDrag:1.05, sleepDelay:.40, impactStrength:650, shatterCount:2},
+    soft:    {density:.72, restitution:.055, staticFriction:.86, dynamicFriction:.68, airDrag:.16, angularDrag:.15, gravityScale:1, floorDrag:1.3, sleepDelay:.30, impactStrength:1000, shatterCount:1},
+    rubber:  {density:.92, restitution:.48, staticFriction:.92, dynamicFriction:.72, airDrag:.10, angularDrag:.12, gravityScale:1, floorDrag:1.35, sleepDelay:.52, impactStrength:1500, shatterCount:1},
+    ceramic: {density:1.25, restitution:.10, staticFriction:.66, dynamicFriction:.48, airDrag:.07, angularDrag:.07, gravityScale:1, floorDrag:1, sleepDelay:.38, impactStrength:500, shatterCount:5},
+    glass:   {density:1.18, restitution:.16, staticFriction:.42, dynamicFriction:.30, airDrag:.065, angularDrag:.055, gravityScale:1, floorDrag:.8, sleepDelay:.44, impactStrength:390, shatterCount:6},
+    light:   {density:.48, restitution:.08, staticFriction:.58, dynamicFriction:.42, airDrag:.28, angularDrag:.24, gravityScale:.92, floorDrag:1.05, sleepDelay:.48, impactStrength:560, shatterCount:3}
+  };
+
+  const MATERIAL_BY_TYPE = {};
+  function assignMaterial(types,preset,overrides={}) {
+    for (const type of types.split(" ")) {
+      MATERIAL_BY_TYPE[type] = {...MATERIAL_PRESETS[preset],...overrides};
+    }
+  }
+
+  assignMaterial("box rectangle line compound triangle pentagon hexagon octagon cross arrow star heart crown house tree cactus bone tungtung", "wood");
+  assignMaterial("sword axe hammer anvil anchor tank knight robot trophy key magnet", "metal");
+  assignMaterial("shield creeper zombie skeleton enderman skull moon sun planet gem diamond", "stone");
+  assignMaterial("phone camera flask hourglass submarine ufo rocket plane", "glass", {density:1.35,restitution:.11});
+  assignMaterial("human amongus astronaut ninja ghost snowman alien toilet", "soft");
+  assignMaterial("duck fish cat bat capybara doge cheems shrekhead tralalero bombardino", "soft", {density:.78,airDrag:.18});
+  assignMaterial("controller boot donut ball circle", "rubber");
+  assignMaterial("pizza mushroom cup flower cloud banana lightning", "light");
+
+  Object.assign(MATERIAL_BY_TYPE, {
+    circle:{...MATERIAL_PRESETS.rubber,density:1.05,restitution:.56,dynamicFriction:.58},
+    donut:{...MATERIAL_PRESETS.soft,density:.62,restitution:.16,dynamicFriction:.64},
+    cloud:{...MATERIAL_PRESETS.light,density:.28,airDrag:.48,angularDrag:.40,gravityScale:.68},
+    plane:{...MATERIAL_PRESETS.light,density:.72,airDrag:.20,angularDrag:.16,gravityScale:.90},
+    rocket:{...MATERIAL_PRESETS.metal,density:1.45,airDrag:.07},
+    submarine:{...MATERIAL_PRESETS.metal,density:1.75,airDrag:.09},
+    pizza:{...MATERIAL_PRESETS.soft,density:.58,restitution:.04,dynamicFriction:.74},
+    banana:{...MATERIAL_PRESETS.soft,density:.55,restitution:.08,dynamicFriction:.70},
+    flower:{...MATERIAL_PRESETS.light,density:.38,airDrag:.34,angularDrag:.30},
+    lightning:{...MATERIAL_PRESETS.metal,density:.92,restitution:.10,airDrag:.13},
+    snowman:{...MATERIAL_PRESETS.soft,density:.88,restitution:.04,dynamicFriction:.58},
+    toilet:{...MATERIAL_PRESETS.ceramic,density:1.3,restitution:.08},
+    house:{...MATERIAL_PRESETS.wood,density:1.1,restitution:.07},
+    tree:{...MATERIAL_PRESETS.wood,density:.95,restitution:.08},
+    hourglass:{...MATERIAL_PRESETS.glass,density:1.05,restitution:.12},
+    shield:{...MATERIAL_PRESETS.metal,density:1.75,restitution:.08},
+    bone:{...MATERIAL_PRESETS.ceramic,density:1.05,restitution:.14},
+    skull:{...MATERIAL_PRESETS.ceramic,density:1.0,restitution:.13},
+    moon:{...MATERIAL_PRESETS.stone,density:1.42},
+    planet:{...MATERIAL_PRESETS.stone,density:1.6,restitution:.12},
+    sun:{...MATERIAL_PRESETS.stone,density:1.25,restitution:.14},
+    gem:{...MATERIAL_PRESETS.glass,density:1.55,restitution:.20},
+    diamond:{...MATERIAL_PRESETS.glass,density:1.72,restitution:.18}
+  });
+
+  Object.assign(MATERIAL_BY_TYPE, {
+    materialglass:{...MATERIAL_PRESETS.glass,impactStrength:340,shatterCount:7},
+    materialceramic:{...MATERIAL_PRESETS.ceramic,impactStrength:450,shatterCount:6},
+    materialwood:{...MATERIAL_PRESETS.wood,impactStrength:680,shatterCount:3},
+    materialstone:{...MATERIAL_PRESETS.stone,impactStrength:860,shatterCount:4},
+    materialmetal:{...MATERIAL_PRESETS.metal,impactStrength:1250,shatterCount:1},
+    materialrubber:{...MATERIAL_PRESETS.rubber,restitution:.62,impactStrength:1650,shatterCount:1},
+    materialice:{...MATERIAL_PRESETS.glass,density:.92,restitution:.08,staticFriction:.10,dynamicFriction:.055,floorDrag:.32,impactStrength:300,shatterCount:7},
+    materialfoam:{...MATERIAL_PRESETS.light,density:.22,restitution:.03,staticFriction:.82,dynamicFriction:.68,airDrag:.62,angularDrag:.52,gravityScale:.82,impactStrength:1800,shatterCount:1}
+  });
+
+  const MATERIAL_SAMPLE_TYPES = new Set([
+    "materialglass","materialceramic","materialwood","materialstone",
+    "materialmetal","materialrubber","materialice","materialfoam"
+  ]);
+
+  const MATERIAL_SAMPLE_COLORS = {
+    materialglass:"rgba(137,211,230,.58)",
+    materialceramic:"#eee8dc",
+    materialwood:"#b8783d",
+    materialstone:"#777b80",
+    materialmetal:"#929ba5",
+    materialrubber:"#c94d55",
+    materialice:"rgba(170,225,248,.72)",
+    materialfoam:"#e8cf65"
+  };
+
+  const materialFor = type => ({...(MATERIAL_BY_TYPE[type] || MATERIAL_PRESETS.neutral)});
+
   function bodyFromWorldVertices(vertices, options={}) {
     const world = makeCCW(vertices);
     const center = centroid(world);
     const local = world.map(p=>sub(p,center));
-    const area = Math.max(90,Math.abs(polygonArea(world)));
-    const mass = area / 2300;
+    const area = Math.max(12,Math.abs(polygonArea(world)));
+    const material = options.material ? {...options.material} : materialFor(options.shapeType);
+    const mass = Math.max(.025,area / 2300 * material.density);
     const radius = Math.max(...local.map(length));
-    const parts = triangulate(local);
+    const parts = collisionParts(local);
 
-    let sumRadiusSquared = 0;
-    for (const point of local) sumRadiusSquared += dot(point,point);
-    const inertia = Math.max(.05,mass*sumRadiusSquared/local.length);
+    // Exact polygon polar moment keeps long bars, squares and tiny fragments
+    // rotating according to their true mass distribution.
+    const inertia = Math.max(.05,mass*polygonPolarMoment(local)/area);
 
     return {
       id: idCounter++,
@@ -617,13 +734,85 @@
       verts: local,
       parts,
       color: options.color || palette[Math.floor(Math.random()*palette.length)],
+      shapeType: options.shapeType || null,
+      material,
       mass,
       invMass: 1/mass,
       inertia,
       invInertia: 1/inertia,
       radius,
+      collisionThickness:polygonMinimumThickness(local),
       sleepTimer: 0,
-      sleeping: false
+      sleeping: false,
+      releaseGrace: 0,
+      impactGrace: options.impactGrace || 0,
+      impactGeneration: options.impactGeneration || 0
+    };
+  }
+
+  function convexHull(points) {
+    const sorted = points.map(p=>({...p})).sort((a,b)=>a.x-b.x || a.y-b.y);
+    if (sorted.length<=3) return makeCCW(sorted);
+    const half = [];
+    for (const point of sorted) {
+      while (half.length>=2 && cross(sub(half[half.length-1],half[half.length-2]),sub(point,half[half.length-1]))<=0) half.pop();
+      half.push(point);
+    }
+    const lower = half.slice(0,-1);
+    half.length = 0;
+    for (let i=sorted.length-1;i>=0;i--) {
+      const point=sorted[i];
+      while (half.length>=2 && cross(sub(half[half.length-1],half[half.length-2]),sub(point,half[half.length-1]))<=0) half.pop();
+      half.push(point);
+    }
+    return makeCCW(lower.concat(half.slice(0,-1)));
+  }
+
+  function bodyFromCompoundPolygons(polygons,options={}) {
+    const valid = polygons.filter(poly=>poly.length>=3 && Math.abs(polygonArea(poly))>1);
+    if (!valid.length) return null;
+
+    let totalArea=0;
+    let weightedCenter={x:0,y:0};
+    for (const poly of valid) {
+      const area=Math.abs(polygonArea(poly));
+      totalArea+=area;
+      weightedCenter=add(weightedCenter,mul(centroid(poly),area));
+    }
+    const center=mul(weightedCenter,1/totalArea);
+    const localPolygons=valid.map(poly=>makeCCW(poly).map(point=>sub(point,center)));
+    const allLocal=localPolygons.flat();
+    const hull=convexHull(allLocal);
+    const material=options.material ? {...options.material} : materialFor("compound");
+    const mass=Math.max(.025,totalArea/2300*material.density);
+    const radius=Math.max(...allLocal.map(length));
+    const polarMoment=localPolygons.reduce((sum,poly)=>sum+polygonPolarMoment(poly),0);
+    const inertia=Math.max(.05,mass*polarMoment/totalArea);
+
+    return {
+      id:idCounter++,
+      pos:center,
+      vel:options.vel ? {...options.vel} : {x:0,y:0},
+      angle:0,
+      angVel:options.angVel || 0,
+      verts:hull,
+      polygons:localPolygons,
+      parts:localPolygons.flatMap(poly=>collisionParts(poly)),
+      color:options.color || palette[Math.floor(Math.random()*palette.length)],
+      shapeType:"compound",
+      isCompound:true,
+      material,
+      mass,
+      invMass:1/mass,
+      inertia,
+      invInertia:1/inertia,
+      radius,
+      collisionThickness:polygonMinimumThickness(hull),
+      sleepTimer:0,
+      sleeping:false,
+      releaseGrace:0,
+      impactGrace:options.impactGrace || 0,
+      impactGeneration:options.impactGeneration || 0
     };
   }
 
@@ -637,6 +826,11 @@
     );
   }
 
+  function getWorldDrawPolygons(body) {
+    const polygons=body.polygons || [body.verts];
+    return polygons.map(poly=>poly.map(point=>add(body.pos,rotate(point,body.angle))));
+  }
+
   function regularPolygon(x,y,r,sides,angle=Math.random()*Math.PI) {
     const points = [];
     for (let i=0;i<sides;i++) {
@@ -647,18 +841,12 @@
   }
 
   function spawn(x=width*.65,y=40,type=selectedSpawnType) {
+    if (["line","rectangle","compound"].includes(type)) return null;
     if (type === "random") {
-      const choices = [
-        "box","triangle","pentagon","hexagon","octagon","circle",
-        "human","amongus","creeper","roblox","star","heart",
-        "sword","rocket","duck","ghost","crown","lightning",
-        "fish","key","anvil","bone","moon","ufo","axe","hammer",
-        "skull","mushroom","cat","bat","shield","hourglass","controller",
-        "pizza","gem","boot","trophy","flask","anchor","robot","alien",
-        "snowman","tree","flower","cactus","submarine","plane","tank",
-        "magnet","camera","phone","musicnote","cloud","sun","planet",
-        "donut","cup","diamond","arrow","cross","house","tungtung","tralalero","bombardino","capybara","banana","amogusface","doge","cheems","shrekhead","toilet"
-      ];
+      // Keep random spawning in lockstep with the visible, implemented menu.
+      const choices = spawnables
+        .map(item => item.id)
+        .filter(id => !["random","line","rectangle","compound"].includes(id));
       type = choices[Math.floor(Math.random()*choices.length)];
     }
 
@@ -670,21 +858,29 @@
     }
     let vertices;
 
-    if (type === "circle") {
+    if (MATERIAL_SAMPLE_TYPES.has(type)) {
+      vertices=[
+        {x:x-r,y:y-r},{x:x+r,y:y-r},
+        {x:x+r,y:y+r},{x:x-r,y:y+r}
+      ];
+    } else if (type === "circle") {
       const sides=28;
       vertices=regularPolygon(x,y,r,sides);
     } else if (type === "human") {
+      // Proper T-pose proportions: head, neck, long arms, torso and separated legs.
       vertices=[
-        {x:x-10,y:y-48},{x:x+10,y:y-48},
-        {x:x+16,y:y-36},{x:x+16,y:y-20},
-        {x:x+52,y:y-20},{x:x+52,y:y-5},
-        {x:x+16,y:y-5},{x:x+16,y:y+38},
-        {x:x+27,y:y+75},{x:x+8,y:y+75},
-        {x:x,y:y+42},{x:x-8,y:y+75},
-        {x:x-27,y:y+75},{x:x-16,y:y+38},
-        {x:x-16,y:y-5},{x:x-52,y:y-5},
-        {x:x-52,y:y-20},{x:x-16,y:y-20},
-        {x:x-16,y:y-36}
+        {x:x-r*.17,y:y-r},{x:x+r*.17,y:y-r},
+        {x:x+r*.27,y:y-r*.88},{x:x+r*.27,y:y-r*.67},
+        {x:x+r*.18,y:y-r*.58},{x:x+r*.88,y:y-r*.58},
+        {x:x+r,y:y-r*.46},{x:x+r,y:y-r*.30},
+        {x:x+r*.20,y:y-r*.30},{x:x+r*.20,y:y+r*.28},
+        {x:x+r*.34,y:y+r},{x:x+r*.04,y:y+r},
+        {x:x,y:y+r*.35},{x:x-r*.04,y:y+r},
+        {x:x-r*.34,y:y+r},{x:x-r*.20,y:y+r*.28},
+        {x:x-r*.20,y:y-r*.30},{x:x-r,y:y-r*.30},
+        {x:x-r,y:y-r*.46},{x:x-r*.88,y:y-r*.58},
+        {x:x-r*.18,y:y-r*.58},{x:x-r*.27,y:y-r*.67},
+        {x:x-r*.27,y:y-r*.88}
       ];
     } else if (type === "amongus") {
       // Rounded crewmate silhouette: backpack, domed head and separated legs.
@@ -700,28 +896,72 @@
         {x:x-r*.72,y:y-r*.46}
       ];
     } else if (type === "creeper") {
-      // Minecraft Creeper: square head, thin body, four blocky feet.
+      // Creeper silhouette with a large square head, narrow body, and a
+      // real open gap between the two visible foot groups. The old outline
+      // had a center peg that looked like a block sticking between its legs.
       vertices=[
-        {x:x-r*.48,y:y-r},{x:x+r*.48,y:y-r},
-        {x:x+r*.48,y:y-r*.18},{x:x+r*.3,y:y-r*.18},
-        {x:x+r*.3,y:y+r*.38},{x:x+r*.62,y:y+r*.38},
-        {x:x+r*.62,y:y+r},{x:x+r*.12,y:y+r},
-        {x:x+r*.12,y:y+r*.7},{x:x-r*.12,y:y+r*.7},
-        {x:x-r*.12,y:y+r},{x:x-r*.62,y:y+r},
-        {x:x-r*.62,y:y+r*.38},{x:x-r*.3,y:y+r*.38},
-        {x:x-r*.3,y:y-r*.18},{x:x-r*.48,y:y-r*.18}
+        {x:x-r*.64,y:y-r},{x:x+r*.64,y:y-r},
+        {x:x+r*.64,y:y-r*.27},{x:x+r*.27,y:y-r*.27},
+        {x:x+r*.27,y:y+r*.54},{x:x+r*.64,y:y+r*.54},
+        {x:x+r*.64,y:y+r},{x:x+r*.10,y:y+r},
+        {x:x+r*.10,y:y+r*.72},{x:x-r*.10,y:y+r*.72},
+        {x:x-r*.10,y:y+r},{x:x-r*.64,y:y+r},
+        {x:x-r*.64,y:y+r*.54},{x:x-r*.27,y:y+r*.54},
+        {x:x-r*.27,y:y-r*.27},{x:x-r*.64,y:y-r*.27}
       ];
-    } else if (type === "roblox") {
-      // Classic blocky Roblox noob proportions.
+    } else if (type === "zombie") {
       vertices=[
-        {x:x-r*.28,y:y-r},{x:x+r*.28,y:y-r},
-        {x:x+r*.28,y:y-r*.58},{x:x+r*.52,y:y-r*.58},
-        {x:x+r*.52,y:y+r*.2},{x:x+r*.28,y:y+r*.2},
-        {x:x+r*.28,y:y+r},{x:x+r*.04,y:y+r},
-        {x:x+r*.02,y:y+r*.28},{x:x-r*.02,y:y+r*.28},
-        {x:x-r*.04,y:y+r},{x:x-r*.28,y:y+r},
-        {x:x-r*.28,y:y+r*.2},{x:x-r*.52,y:y+r*.2},
-        {x:x-r*.52,y:y-r*.58},{x:x-r*.28,y:y-r*.58}
+        {x:x-r*.30,y:y-r},{x:x+r*.30,y:y-r},{x:x+r*.30,y:y-r*.58},
+        {x:x+r*.72,y:y-r*.58},{x:x+r*.72,y:y-r*.34},{x:x+r*.28,y:y-r*.34},
+        {x:x+r*.28,y:y+r*.28},{x:x+r*.34,y:y+r},{x:x+r*.06,y:y+r},
+        {x:x,y:y+r*.36},{x:x-r*.06,y:y+r},{x:x-r*.34,y:y+r},
+        {x:x-r*.28,y:y+r*.28},{x:x-r*.28,y:y-r*.34},{x:x-r*.72,y:y-r*.34},
+        {x:x-r*.72,y:y-r*.58},{x:x-r*.30,y:y-r*.58}
+      ];
+    } else if (type === "skeleton") {
+      vertices=[
+        {x:x-r*.28,y:y-r},{x:x+r*.28,y:y-r},{x:x+r*.28,y:y-r*.62},
+        {x:x+r*.14,y:y-r*.50},{x:x+r*.14,y:y+r*.28},{x:x+r*.28,y:y+r},
+        {x:x+r*.04,y:y+r},{x:x,y:y+r*.34},{x:x-r*.04,y:y+r},
+        {x:x-r*.28,y:y+r},{x:x-r*.14,y:y+r*.28},{x:x-r*.14,y:y-r*.50},
+        {x:x-r*.28,y:y-r*.62}
+      ];
+    } else if (type === "enderman") {
+      vertices=[
+        {x:x-r*.26,y:y-r},{x:x+r*.26,y:y-r},{x:x+r*.26,y:y-r*.62},
+        {x:x+r*.18,y:y-r*.50},{x:x+r*.18,y:y+r*.20},{x:x+r*.30,y:y+r},
+        {x:x+r*.08,y:y+r},{x:x,y:y+r*.28},{x:x-r*.08,y:y+r},
+        {x:x-r*.30,y:y+r},{x:x-r*.18,y:y+r*.20},{x:x-r*.18,y:y-r*.50},
+        {x:x-r*.26,y:y-r*.62}
+      ];
+    } else if (type === "astronaut") {
+      vertices=[
+        {x:x-r*.34,y:y-r},{x:x+r*.34,y:y-r},{x:x+r*.48,y:y-r*.78},
+        {x:x+r*.48,y:y-r*.54},{x:x+r*.70,y:y-r*.40},{x:x+r*.56,y:y-r*.12},
+        {x:x+r*.34,y:y-r*.26},{x:x+r*.30,y:y+r*.30},{x:x+r*.42,y:y+r},
+        {x:x+r*.08,y:y+r},{x:x,y:y+r*.34},{x:x-r*.08,y:y+r},
+        {x:x-r*.42,y:y+r},{x:x-r*.30,y:y+r*.30},{x:x-r*.34,y:y-r*.26},
+        {x:x-r*.56,y:y-r*.12},{x:x-r*.70,y:y-r*.40},{x:x-r*.48,y:y-r*.54},
+        {x:x-r*.48,y:y-r*.78}
+      ];
+    } else if (type === "ninja") {
+      vertices=[
+        {x:x-r*.30,y:y-r},{x:x+r*.30,y:y-r},{x:x+r*.34,y:y-r*.58},
+        {x:x+r*.62,y:y-r*.42},{x:x+r*.48,y:y-r*.18},{x:x+r*.26,y:y-r*.30},
+        {x:x+r*.24,y:y+r*.26},{x:x+r*.34,y:y+r},{x:x+r*.05,y:y+r},
+        {x:x,y:y+r*.34},{x:x-r*.05,y:y+r},{x:x-r*.34,y:y+r},
+        {x:x-r*.24,y:y+r*.26},{x:x-r*.26,y:y-r*.30},{x:x-r*.48,y:y-r*.18},
+        {x:x-r*.62,y:y-r*.42},{x:x-r*.34,y:y-r*.58}
+      ];
+    } else if (type === "knight") {
+      vertices=[
+        {x:x-r*.30,y:y-r},{x:x+r*.30,y:y-r},{x:x+r*.40,y:y-r*.72},
+        {x:x+r*.34,y:y-r*.54},{x:x+r*.68,y:y-r*.36},{x:x+r*.56,y:y-r*.10},
+        {x:x+r*.30,y:y-r*.24},{x:x+r*.26,y:y+r*.28},{x:x+r*.36,y:y+r},
+        {x:x+r*.06,y:y+r},{x:x,y:y+r*.36},{x:x-r*.06,y:y+r},
+        {x:x-r*.36,y:y+r},{x:x-r*.26,y:y+r*.28},{x:x-r*.30,y:y-r*.24},
+        {x:x-r*.56,y:y-r*.10},{x:x-r*.68,y:y-r*.36},{x:x-r*.34,y:y-r*.54},
+        {x:x-r*.40,y:y-r*.72}
       ];
     } else if (type === "star") {
       vertices=[];
@@ -740,12 +980,13 @@
       ];
     } else if (type === "sword") {
       vertices=[
-        {x:x-7,y:y-r},{x:x+7,y:y-r},
-        {x:x+10,y:y+r*.28},{x:x+30,y:y+r*.28},
-        {x:x+30,y:y+r*.43},{x:x+10,y:y+r*.43},
-        {x:x+10,y:y+r*.82},{x:x-10,y:y+r*.82},
-        {x:x-10,y:y+r*.43},{x:x-30,y:y+r*.43},
-        {x:x-30,y:y+r*.28},{x:x-10,y:y+r*.28}
+        {x:x,y:y-r},{x:x+r*.16,y:y-r*.82},
+        {x:x+r*.16,y:y+r*.24},{x:x+r*.62,y:y+r*.24},
+        {x:x+r*.62,y:y+r*.42},{x:x+r*.17,y:y+r*.42},
+        {x:x+r*.17,y:y+r*.82},{x:x,y:y+r},
+        {x:x-r*.17,y:y+r*.82},{x:x-r*.17,y:y+r*.42},
+        {x:x-r*.62,y:y+r*.42},{x:x-r*.62,y:y+r*.24},
+        {x:x-r*.16,y:y+r*.24},{x:x-r*.16,y:y-r*.82}
       ];
     } else if (type === "rocket") {
       vertices=[
@@ -849,18 +1090,17 @@
       ];
     } else if (type === "hammer") {
       vertices=[
-        {x:x-r*.12,y:y-r},{x:x+r*.62,y:y-r},
-        {x:x+r*.62,y:y-r*.52},{x:x+r*.15,y:y-r*.52},
+        {x:x-r*.68,y:y-r},{x:x+r*.68,y:y-r},
+        {x:x+r*.68,y:y-r*.52},{x:x+r*.15,y:y-r*.52},
         {x:x+r*.12,y:y+r},{x:x-r*.12,y:y+r},
-        {x:x-r*.15,y:y-r*.52},{x:x-r*.72,y:y-r*.52},
-        {x:x-r*.72,y:y-r}
+        {x:x-r*.15,y:y-r*.52},{x:x-r*.68,y:y-r*.52}
       ];
     } else if (type === "skull") {
       vertices=[
         {x:x-r*.58,y:y-r*.72},{x:x,y:y-r},
         {x:x+r*.58,y:y-r*.72},{x:x+r*.82,y:y-r*.15},
         {x:x+r*.65,y:y+r*.35},{x:x+r*.35,y:y+r*.48},
-        {x:x+r*.28,y:y+r},{x:x+.05*r,y:y+r*.72},
+        {x:x+r*.28,y:y+r},{x:x,y:y+r*.72},
         {x:x-r*.18,y:y+r},{x:x-r*.35,y:y+r*.48},
         {x:x-r*.65,y:y+r*.35},{x:x-r*.82,y:y-r*.15}
       ];
@@ -1071,14 +1311,6 @@
         {x:x+r*.48,y:y+r},{x:x-r*.48,y:y+r},
         {x:x-r*.6,y:y+r*.82},{x:x-r*.6,y:y-r*.82}
       ];
-    } else if (type === "musicnote") {
-      vertices=[
-        {x:x-r*.18,y:y-r},{x:x+r*.62,y:y-r*.78},
-        {x:x+r*.62,y:y+r*.3},{x:x+r*.38,y:y+r*.3},
-        {x:x+r*.18,y:y+r*.55},{x:x-r*.12,y:y+r*.62},
-        {x:x-r*.4,y:y+r*.42},{x:x-r*.42,y:y+r*.12},
-        {x:x-r*.18,y:y-r*.02}
-      ];
     } else if (type === "cloud") {
       vertices=[
         {x:x-r,y:y+r*.18},{x:x-r*.82,y:y-r*.18},
@@ -1280,7 +1512,12 @@
       toilet:"#e7e7e7",
       banana:"#e4bd32",
       creeper:"#58a83f",
-      roblox:"#f4d21f"
+      zombie:"#68a84f",
+      skeleton:"#dedede",
+      enderman:"#1d1a24",
+      astronaut:"#e7e7e7",
+      ninja:"#24242a",
+      knight:"#9aa0a8"
     };
 
     const amongUsColors=[
@@ -1294,7 +1531,7 @@
       "#e67e22","#1abc9c","#95a5a6","#ff69b4","#7f8c8d"
     ];
 
-    let bodyColor = memeColors[type];
+    let bodyColor = MATERIAL_SAMPLE_COLORS[type] || memeColors[type];
     if(type==="amongus"){
       bodyColor=amongUsColors[(Math.random()*amongUsColors.length)|0];
     }else if(type==="human"){
@@ -1302,12 +1539,13 @@
     }
 
     const body = bodyFromWorldVertices(vertices,{
-      vel:{x:(Math.random()-.5)*70,y:Math.random()*20},
-      angVel:(Math.random()-.5)*1.2,
-      color:bodyColor
+      vel:{x:0,y:0},
+      angVel:0,
+      color:bodyColor,
+      shapeType:type,
+      material:materialFor(type)
     });
 
-    body.shapeType = type;
     bodies.push(body);
   }
 
@@ -1349,11 +1587,31 @@
   }
 
   function cleanPolygon(points) {
+    // Keep tiny slice vertices instead of deleting them with a large fixed
+    // tolerance. Then remove only genuinely duplicate/collinear points.
     const clean = [];
+    const epsilon = 0.06;
     for (const p of points) {
-      if (!clean.length || length(sub(p,clean[clean.length-1]))>.5) clean.push(p);
+      if (!clean.length || length(sub(p,clean[clean.length-1])) > epsilon) clean.push(p);
     }
-    if (clean.length>2 && length(sub(clean[0],clean[clean.length-1]))<.5) clean.pop();
+    if (clean.length > 2 && length(sub(clean[0],clean[clean.length-1])) < epsilon) clean.pop();
+
+    let changed = true;
+    while (changed && clean.length > 3) {
+      changed = false;
+      for (let i=0;i<clean.length;i++) {
+        const previous = clean[(i-1+clean.length)%clean.length];
+        const current = clean[i];
+        const next = clean[(i+1)%clean.length];
+        const a = sub(current,previous);
+        const b = sub(next,current);
+        if (length(a) < epsilon || length(b) < epsilon || Math.abs(cross(a,b)) < 0.0025) {
+          clean.splice(i,1);
+          changed = true;
+          break;
+        }
+      }
+    }
     return clean;
   }
 
@@ -1390,23 +1648,115 @@
     return add(body.vel,mul(perpendicular(radius),body.angVel));
   }
 
-  function sliceBody(body,a,b) {
-    const vertices = getWorldVertices(body);
-    let hitCount = 0;
+  function segmentActuallyCrossesPolygon(a,b,vertices) {
+    // A slice gesture is a finite segment, not an infinite line. Require the
+    // visible swipe itself to cross the polygon boundary twice. Deduplicate
+    // corner hits, where the same corner belongs to two polygon edges.
+    const hits = [];
+    const hitEpsilon = 0.75;
 
     for (let i=0;i<vertices.length;i++) {
-      if (segmentIntersection(a,b,vertices[i],vertices[(i+1)%vertices.length])) {
-        hitCount++;
+      const hit = segmentIntersection(a,b,vertices[i],vertices[(i+1)%vertices.length]);
+      if (!hit) continue;
+      if (!hits.some(existing => length(sub(existing,hit)) < hitEpsilon)) hits.push(hit);
+    }
+
+    return hits.length >= 2;
+  }
+
+  function sliceCompoundBody(body,a,b) {
+    const worldPolygons=getWorldDrawPolygons(body);
+    const firstPolygons=[];
+    const secondPolygons=[];
+    let crossedPart=false;
+
+    for (const polygon of worldPolygons) {
+      if (segmentActuallyCrossesPolygon(a,b,polygon)) {
+        crossedPart=true;
+        const first=clipByLine(polygon,a,b,true);
+        const second=clipByLine(polygon,a,b,false);
+        if (first.length>=3 && Math.abs(polygonArea(first))>=.7) firstPolygons.push(first);
+        if (second.length>=3 && Math.abs(polygonArea(second))>=.7) secondPolygons.push(second);
+      } else if (lineSide(centroid(polygon),a,b)>=0) {
+        firstPolygons.push(polygon);
+      } else {
+        secondPolygons.push(polygon);
       }
     }
 
-    if (hitCount<2) return null;
+    if (!crossedPart || !firstPolygons.length || !secondPolygons.length) return null;
+    const firstArea=firstPolygons.reduce((sum,poly)=>sum+Math.abs(polygonArea(poly)),0);
+    const secondArea=secondPolygons.reduce((sum,poly)=>sum+Math.abs(polygonArea(poly)),0);
+    const minimumArea=clamp((firstArea+secondArea)*.0025,.7,10);
+    if (firstArea<minimumArea || secondArea<minimumArea) return null;
+
+    const groupCenter=polygons=>{
+      let areaSum=0;
+      let weighted={x:0,y:0};
+      for (const polygon of polygons) {
+        const area=Math.abs(polygonArea(polygon));
+        areaSum+=area;
+        weighted=add(weighted,mul(centroid(polygon),area));
+      }
+      return mul(weighted,1/areaSum);
+    };
+    const direction=normalize(sub(b,a));
+    const normal=perpendicular(direction);
+    const firstCenter=groupCenter(firstPolygons);
+    const secondCenter=groupCenter(secondPolygons);
+    const firstSide=Math.sign(lineSide(firstCenter,a,b)) || 1;
+    const secondSide=Math.sign(lineSide(secondCenter,a,b)) || -1;
+    const separationSpeed=paused ? 0 : 24;
+
+    const firstBody=bodyFromCompoundPolygons(firstPolygons,{
+      color:body.color,
+      material:body.material,
+      vel:add(velocityAtPoint(body,firstCenter),mul(normal,separationSpeed*firstSide)),
+      angVel:body.angVel
+    });
+    const secondBody=bodyFromCompoundPolygons(secondPolygons,{
+      color:body.color,
+      material:body.material,
+      vel:add(velocityAtPoint(body,secondCenter),mul(normal,separationSpeed*secondSide)),
+      angVel:body.angVel
+    });
+    if (!firstBody || !secondBody) return null;
+    firstBody.pos=add(firstBody.pos,mul(normal,1.2*firstSide));
+    secondBody.pos=add(secondBody.pos,mul(normal,1.2*secondSide));
+    return [firstBody,secondBody];
+  }
+
+  function sliceBody(body,a,b) {
+    if (body.isCompound) return sliceCompoundBody(body,a,b);
+    const vertices = getWorldVertices(body);
+
+    // Do not let the infinite extension of a swipe cut an object. The mouse
+    // trail must physically pass through the shape on screen.
+    if (!segmentActuallyCrossesPolygon(a,b,vertices)) return null;
+
+    // Checking which side each vertex is on is more reliable than counting
+    // edge intersections. It still works on very thin pieces and when the cut
+    // passes exactly through a corner.
+    let minSide = Infinity;
+    let maxSide = -Infinity;
+    for (const vertex of vertices) {
+      const side = lineSide(vertex,a,b);
+      minSide = Math.min(minSide,side);
+      maxSide = Math.max(maxSide,side);
+    }
+    if (minSide > -0.05 || maxSide < 0.05) return null;
 
     const first = clipByLine(vertices,a,b,true);
     const second = clipByLine(vertices,a,b,false);
 
     if (first.length<3 || second.length<3) return null;
-    if (Math.abs(polygonArea(first))<150 || Math.abs(polygonArea(second))<150) return null;
+    const originalArea = Math.abs(polygonArea(vertices));
+    // Tiny shards are allowed, but reject mathematically degenerate slivers.
+    const minimumPieceArea = clamp(originalArea*0.0025,0.7,10);
+    const firstArea = Math.abs(polygonArea(first));
+    const secondArea = Math.abs(polygonArea(second));
+    if (firstArea < minimumPieceArea || secondArea < minimumPieceArea) return null;
+    if (firstArea + secondArea < originalArea * 0.965) return null;
 
     const direction = normalize(sub(b,a));
     const normal = perpendicular(direction);
@@ -1414,23 +1764,121 @@
     const secondCenter = centroid(second);
     const firstSide = Math.sign(lineSide(firstCenter,a,b)) || 1;
     const secondSide = Math.sign(lineSide(secondCenter,a,b)) || -1;
+    const separationSpeed = paused ? 0 : 35;
 
     const firstBody = bodyFromWorldVertices(first,{
       color:body.color,
-      vel:add(velocityAtPoint(body,firstCenter),mul(normal,35*firstSide)),
-      angVel:body.angVel
+      vel:add(velocityAtPoint(body,firstCenter),mul(normal,separationSpeed*firstSide)),
+      angVel:body.angVel,
+      material:body.material
     });
 
     const secondBody = bodyFromWorldVertices(second,{
       color:body.color,
-      vel:add(velocityAtPoint(body,secondCenter),mul(normal,35*secondSide)),
-      angVel:body.angVel
+      vel:add(velocityAtPoint(body,secondCenter),mul(normal,separationSpeed*secondSide)),
+      angVel:body.angVel,
+      material:body.material
     });
 
     firstBody.pos = add(firstBody.pos,mul(normal,1.5*firstSide));
     secondBody.pos = add(secondBody.pos,mul(normal,1.5*secondSide));
 
     return [firstBody,secondBody];
+  }
+
+  function queueImpactBreak(body,normal,contact,damageSpeed) {
+    if (!impactMode || paused || body.impactGrace>0 || body.impactGeneration>=3) return;
+    if (body.radius<14 || body.mass<.024 || damageSpeed<body.material.impactStrength) return;
+    const previous=impactBreakQueue.get(body.id);
+    if (!previous || damageSpeed>previous.damageSpeed) {
+      impactBreakQueue.set(body.id,{
+        normal:{...normal},
+        contact:{...contact},
+        damageSpeed
+      });
+    }
+  }
+
+  function queueBodyImpact(a,b,collision,impactSpeed) {
+    if (!impactMode || impactSpeed<=0) return;
+    const reducedMass=(a.mass*b.mass)/Math.max(a.mass+b.mass,1e-8);
+    const impactEnergy=.5*reducedMass*impactSpeed*impactSpeed;
+    // Even a large target receives a meaningful shock wave at the contact.
+    // This keeps long, heavy lines from becoming unbreakable to fast projectiles.
+    const damageFor=body=>Math.max(
+      impactSpeed*.62,
+      Math.sqrt(2*impactEnergy/Math.max(body.mass,.001))
+    );
+    queueImpactBreak(a,mul(collision.normal,-1),collision.contact,damageFor(a));
+    queueImpactBreak(b,collision.normal,collision.contact,damageFor(b));
+  }
+
+  function impactCut(body,hit,angleOffset=0) {
+    let inward=normalize(sub(body.pos,hit.contact));
+    if (length(inward)<1e-7) inward=normalize(hit.normal);
+    if (length(inward)<1e-7) inward={x:0,y:-1};
+
+    // Begin outside the struck surface and send the crack ray through the body.
+    // Every fracture therefore visibly originates at the collision point.
+    const direction=rotate(inward,angleOffset);
+    const start=sub(hit.contact,mul(inward,Math.max(8,body.radius*.38)));
+    const end=add(hit.contact,mul(direction,body.radius*3+50));
+    return sliceBody(body,start,end);
+  }
+
+  function fractureBody(body,hit) {
+    const severity=hit.damageSpeed/Math.max(body.material.impactStrength,1);
+    const baseCuts=body.material.shatterCount || 2;
+    const targetCuts=clamp(Math.round(baseCuts+Math.max(0,severity-1)*1.25),1,7);
+    const jitter=(((body.id*47)%101)/100-.5)*.18;
+    const offsets=[jitter,jitter+.28,jitter-.28,jitter+.5,jitter-.5,jitter+.7,jitter-.7];
+    let fragments=[body];
+    let cutsMade=0;
+
+    for (let cutIndex=0;cutIndex<targetCuts;cutIndex++) {
+      const candidates=fragments
+        .map((fragment,index)=>({fragment,index}))
+        .filter(item=>item.fragment.radius>11 && item.fragment.mass>.024)
+        .sort((a,b)=>b.fragment.mass-a.fragment.mass);
+      let split=false;
+      for (const candidate of candidates) {
+        const pieces=impactCut(candidate.fragment,hit,offsets[cutIndex]);
+        if (!pieces) continue;
+        fragments.splice(candidate.index,1,...pieces);
+        cutsMade++;
+        split=true;
+        break;
+      }
+      if (!split) continue;
+    }
+    if (!cutsMade) return null;
+
+    const burst=clamp(8+Math.max(0,severity-1)*18,8,48);
+    for (const fragment of fragments) {
+      fragment.impactGeneration=(body.impactGeneration||0)+1;
+      fragment.impactGrace=.22;
+      fragment.releaseGrace=Math.max(fragment.releaseGrace,.12);
+      const radial=normalize(sub(fragment.pos,hit.contact));
+      fragment.vel=add(velocityAtPoint(body,fragment.pos),mul(radial,burst));
+      fragment.angVel=body.angVel;
+      fragment.sleeping=false;
+      fragment.sleepTimer=0;
+    }
+    flash=Math.max(flash,.55);
+    return fragments;
+  }
+
+  function processImpactBreaks() {
+    if (!impactBreakQueue.size) return;
+    const nextBodies=[];
+    for (const body of bodies) {
+      const hit=impactBreakQueue.get(body.id);
+      const fragments=hit ? fractureBody(body,hit) : null;
+      if (fragments) nextBodies.push(...fragments);
+      else nextBodies.push(body);
+    }
+    bodies=nextBodies;
+    impactBreakQueue.clear();
   }
 
   function performSlice(a,b) {
@@ -1480,6 +1928,76 @@
     return best;
   }
 
+  function pointInConvex(point,vertices) {
+    let sign = 0;
+    for (let i=0;i<vertices.length;i++) {
+      const side = cross(
+        sub(vertices[(i+1)%vertices.length],vertices[i]),
+        sub(point,vertices[i])
+      );
+      if (Math.abs(side)<1e-6) continue;
+      const currentSign = Math.sign(side);
+      if (sign && currentSign!==sign) return false;
+      sign = currentSign;
+    }
+    return true;
+  }
+
+  function segmentIntersection(a,b,c,d) {
+    const r = sub(b,a);
+    const q = sub(d,c);
+    const denominator = cross(r,q);
+    if (Math.abs(denominator)<1e-8) return null;
+
+    const offset = sub(c,a);
+    const t = cross(offset,q)/denominator;
+    const u = cross(offset,r)/denominator;
+    if (t < -1e-6 || t > 1+1e-6 || u < -1e-6 || u > 1+1e-6) return null;
+    return add(a,mul(r,t));
+  }
+
+  function buildContactManifold(aVertices,bVertices,normal) {
+    const points = [];
+    const addUnique = point => {
+      if (!points.some(other=>length(sub(other,point))<.35)) points.push(point);
+    };
+
+    for (const point of aVertices) if (pointInConvex(point,bVertices)) addUnique(point);
+    for (const point of bVertices) if (pointInConvex(point,aVertices)) addUnique(point);
+
+    for (let i=0;i<aVertices.length;i++) {
+      const a0=aVertices[i];
+      const a1=aVertices[(i+1)%aVertices.length];
+      for (let j=0;j<bVertices.length;j++) {
+        const hit=segmentIntersection(
+          a0,a1,bVertices[j],bVertices[(j+1)%bVertices.length]
+        );
+        if (hit) addUnique(hit);
+      }
+    }
+
+    if (!points.length) {
+      const pointOnA = supportPoint(aVertices,normal);
+      const pointOnB = supportPoint(bVertices,mul(normal,-1));
+      points.push(mul(add(pointOnA,pointOnB),.5));
+    }
+
+    const contact = mul(
+      points.reduce((sum,point)=>add(sum,point),{x:0,y:0}),
+      1/points.length
+    );
+    const tangent = perpendicular(normal);
+    let minAlong = Infinity;
+    let maxAlong = -Infinity;
+    for (const point of points) {
+      const along=dot(point,tangent);
+      minAlong=Math.min(minAlong,along);
+      maxAlong=Math.max(maxAlong,along);
+    }
+
+    return { contact, contactSpan:maxAlong-minAlong, contactCount:points.length };
+  }
+
   function findConvexCollision(aVertices,bVertices,aCenter,bCenter) {
     let smallestOverlap = Infinity;
     let bestAxis = null;
@@ -1502,14 +2020,14 @@
     }
 
     if (dot(sub(bCenter,aCenter),bestAxis)<0) bestAxis = mul(bestAxis,-1);
-
-    const pointOnA = supportPoint(aVertices,bestAxis);
-    const pointOnB = supportPoint(bVertices,mul(bestAxis,-1));
+    const manifold = buildContactManifold(aVertices,bVertices,bestAxis);
 
     return {
       normal:bestAxis,
       penetration:smallestOverlap,
-      contact:mul(add(pointOnA,pointOnB),.5)
+      contact:manifold.contact,
+      contactSpan:manifold.contactSpan,
+      contactCount:manifold.contactCount
     };
   }
 
@@ -1548,14 +2066,31 @@
 
     if (speedAlongNormal>0) return;
 
-    const restitution = 0.22;
+    // Combine the two actual materials; low-speed contacts remain inelastic
+    // so stacks can still settle without perpetual micro-bounces.
+    const restitution = Math.abs(speedAlongNormal)>45
+      ? Math.sqrt(a.material.restitution*b.material.restitution)
+      : 0;
     const raCrossN = cross(ra,normal);
     const rbCrossN = cross(rb,normal);
 
+    // Wake bodies before calculating the impulse. The old code calculated
+    // sleeping bodies as infinitely heavy and only woke them afterward,
+    // which caused violent stack corrections and random wobble.
+    if (speedAlongNormal < -1.2 || collision.penetration > 0.7) {
+      a.sleeping = false;
+      b.sleeping = false;
+      a.sleepTimer = 0;
+      b.sleepTimer = 0;
+    }
+    const aInvMass = a.invMass;
+    const bInvMass = b.invMass;
+    const aInvInertia = a.invInertia;
+    const bInvInertia = b.invInertia;
     const denominator =
-      a.invMass+b.invMass+
-      raCrossN*raCrossN*a.invInertia+
-      rbCrossN*rbCrossN*b.invInertia;
+      aInvMass+bInvMass+
+      raCrossN*raCrossN*aInvInertia+
+      rbCrossN*rbCrossN*bInvInertia;
 
     if (denominator<=0) return;
 
@@ -1570,10 +2105,10 @@
 
     const normalImpulse = mul(normal,impulseMagnitude);
 
-    a.vel = sub(a.vel,mul(normalImpulse,a.invMass));
-    b.vel = add(b.vel,mul(normalImpulse,b.invMass));
-    a.angVel -= cross(ra,normalImpulse)*a.invInertia;
-    b.angVel += cross(rb,normalImpulse)*b.invInertia;
+    a.vel = sub(a.vel,mul(normalImpulse,aInvMass));
+    b.vel = add(b.vel,mul(normalImpulse,bInvMass));
+    a.angVel -= cross(ra,normalImpulse)*aInvInertia;
+    b.angVel += cross(rb,normalImpulse)*bInvInertia;
 
     const afterVelocityA = add(a.vel,mul(perpendicular(ra),a.angVel));
     const afterVelocityB = add(b.vel,mul(perpendicular(rb),b.angVel));
@@ -1583,147 +2118,213 @@
     if (length(tangent)>1e-7) tangent = normalize(tangent);
 
     let frictionMagnitude = -dot(afterRelative,tangent)/denominator;
-    const friction = .48;
+    const tangentSpeed = Math.abs(dot(afterRelative,tangent));
+    const friction = tangentSpeed < 18
+      ? Math.sqrt(a.material.staticFriction*b.material.staticFriction)
+      : Math.sqrt(a.material.dynamicFriction*b.material.dynamicFriction);
     const maxFriction = Math.abs(impulseMagnitude)*friction;
     frictionMagnitude = clamp(frictionMagnitude,-maxFriction,maxFriction);
 
     const frictionImpulse = mul(tangent,frictionMagnitude);
-    a.vel = sub(a.vel,mul(frictionImpulse,a.invMass));
-    b.vel = add(b.vel,mul(frictionImpulse,b.invMass));
-    a.angVel -= cross(ra,frictionImpulse)*a.invInertia;
-    b.angVel += cross(rb,frictionImpulse)*b.invInertia;
+    a.vel = sub(a.vel,mul(frictionImpulse,aInvMass));
+    b.vel = add(b.vel,mul(frictionImpulse,bInvMass));
+    a.angVel -= cross(ra,frictionImpulse)*aInvInertia;
+    b.angVel += cross(rb,frictionImpulse)*bInvInertia;
+    limitMotion(a);
+    limitMotion(b);
   }
 
   function correctPositions(a,b,collision) {
-    const slop = .08;
-    const percent = .88;
-    const inverseMassSum = a.invMass+b.invMass;
+    const slop = .045;
+    const percent = .22;
+    if (a.sleeping && b.sleeping) return;
+    const aInvMass = a.invMass;
+    const bInvMass = b.invMass;
+    const inverseMassSum = aInvMass+bInvMass;
     if (inverseMassSum <= 0) return;
 
     const correctionAmount =
       Math.max(collision.penetration-slop,0)*percent/inverseMassSum;
 
     const correction = mul(collision.normal,correctionAmount);
-    a.pos = sub(a.pos,mul(correction,a.invMass));
-    b.pos = add(b.pos,mul(correction,b.invMass));
+    a.pos = sub(a.pos,mul(correction,aInvMass));
+    b.pos = add(b.pos,mul(correction,bInvMass));
+
+
+  }
+
+  function markSupport(body,x) {
+    body.supported = true;
+    body.supportMinX = Math.min(body.supportMinX,x);
+    body.supportMaxX = Math.max(body.supportMaxX,x);
+  }
+
+  function markCollisionSupport(body,collision) {
+    const tangent=perpendicular(collision.normal);
+    const horizontalSpan=(collision.contactSpan || 0)*Math.abs(tangent.x);
+    markSupport(body,collision.contact.x-horizontalSpan*.5);
+    markSupport(body,collision.contact.x+horizontalSpan*.5);
+  }
+
+  function hasStableSupport(body) {
+    if (!body.supported || !Number.isFinite(body.supportMinX)) return false;
+    const margin = Math.max(3,body.radius*.065);
+    return body.pos.x >= body.supportMinX-margin &&
+      body.pos.x <= body.supportMaxX+margin;
+  }
+
+  function limitMotion(body) {
+    const speed = Math.hypot(body.vel.x,body.vel.y);
+    const maxSpeed = 1800;
+    if (speed>maxSpeed) {
+      body.vel.x *= maxSpeed/speed;
+      body.vel.y *= maxSpeed/speed;
+    }
+    const maxAngularSpeed = clamp(1000/Math.max(body.radius,8),8,35);
+    body.angVel = clamp(body.angVel,-maxAngularSpeed,maxAngularSpeed);
+  }
+
+  function applyMouseJoint(body,step) {
+    const r=rotate(heldLocalPoint,body.angle);
+    const worldGrab=add(body.pos,r);
+    const pointVelocity=add(body.vel,mul(perpendicular(r),body.angVel));
+    const error=sub(pointer,worldGrab);
+    const timeScale=slowMotion ? 4 : 1;
+    const cursorVelocity=estimateReleaseVelocity(mouseTrail) || {x:0,y:0};
+    let targetVelocity=add(mul(cursorVelocity,timeScale),mul(error,22*timeScale));
+    const targetSpeed=length(targetVelocity);
+    if (targetSpeed>1800) targetVelocity=mul(targetVelocity,1800/targetSpeed);
+
+    const deltaVelocity=sub(targetVelocity,pointVelocity);
+    const k11=body.invMass+body.invInertia*r.y*r.y;
+    const k12=-body.invInertia*r.x*r.y;
+    const k22=body.invMass+body.invInertia*r.x*r.x;
+    const determinant=k11*k22-k12*k12;
+    if (determinant<=1e-9) return;
+
+    const response=1-Math.exp(-52*step*timeScale);
+    let impulse={
+      x:(k22*deltaVelocity.x-k12*deltaVelocity.y)/determinant*response,
+      y:(k11*deltaVelocity.y-k12*deltaVelocity.x)/determinant*response
+    };
+    const maxImpulse=Math.max(.08,body.mass*900);
+    const impulseLength=length(impulse);
+    if (impulseLength>maxImpulse) impulse=mul(impulse,maxImpulse/impulseLength);
+
+    body.vel=add(body.vel,mul(impulse,body.invMass));
+    body.angVel+=cross(r,impulse)*body.invInertia;
+    limitMotion(body);
   }
 
   function solveWorldBounds(body) {
     const vertices = getWorldVertices(body);
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-    let lowest = [];
-
-    for (const vertex of vertices) {
-      minX = Math.min(minX,vertex.x);
-      maxX = Math.max(maxX,vertex.x);
-      minY = Math.min(minY,vertex.y);
-      if (vertex.y > maxY - 1.5) {
-        if (vertex.y > maxY + 1.5) lowest = [];
-        lowest.push(vertex);
-        maxY = Math.max(maxY,vertex.y);
-      }
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    for (const v of vertices) {
+      minX=Math.min(minX,v.x); maxX=Math.max(maxX,v.x);
+      minY=Math.min(minY,v.y); maxY=Math.max(maxY,v.y);
     }
 
-    const bounce = 0.22;
-    const floorY = height-10;
+    const floorY=height-10;
+    const wallBounce=Math.sqrt(body.material.restitution*.08);
 
     if (maxY>floorY) {
-      const penetration = maxY-floorY;
-      body.pos.y -= penetration;
+      const penetration=maxY-floorY;
+      body.pos.y-=penetration;
 
-      const contact = lowest.length
-        ? lowest.reduce((sum,p)=>add(sum,p),{x:0,y:0})
+      const corrected=getWorldVertices(body);
+      const contacts=corrected.filter(v=>v.y>=floorY-1.25);
+      const contact=contacts.length
+        ? contacts.reduce((sum,v)=>add(sum,v),{x:0,y:0})
         : {x:body.pos.x,y:floorY};
-
-      if (lowest.length) {
-        contact.x /= lowest.length;
-        contact.y /= lowest.length;
+      if (contacts.length) { contact.x/=contacts.length; contact.y/=contacts.length; }
+      for (const floorContact of contacts.length ? contacts : [contact]) {
+        markSupport(body,floorContact.x);
       }
 
-      const r = sub(contact,body.pos);
-      const contactVelocity = add(body.vel,mul(perpendicular(r),body.angVel));
-      const normalSpeed = contactVelocity.y;
-
-      if (normalSpeed>0) {
-        const rCrossN = r.x;
-        const denominator = body.invMass + rCrossN*rCrossN*body.invInertia;
-        let impulseMagnitude = -(1+bounce)*normalSpeed/Math.max(denominator,1e-8);
-
-        if (Math.abs(normalSpeed)<35) {
-          impulseMagnitude = -normalSpeed/Math.max(denominator,1e-8);
-        }
-
-        const impulse = {x:0,y:impulseMagnitude};
-        body.vel = add(body.vel,mul(impulse,body.invMass));
-        body.angVel += cross(r,impulse)*body.invInertia;
+      const r=sub(contact,body.pos);
+      const pointVelocity=add(body.vel,mul(perpendicular(r),body.angVel));
+      if (pointVelocity.y>0) {
+        queueImpactBreak(body,{x:0,y:-1},contact,pointVelocity.y);
+        const rn=r.x;
+        const denom=Math.max(body.invMass+rn*rn*body.invInertia,1e-8);
+        const restitution=pointVelocity.y>45
+          ? Math.sqrt(body.material.restitution*.08)
+          : 0;
+        const j=-(1+restitution)*pointVelocity.y/denom;
+        const impulse={x:0,y:j};
+        body.vel=add(body.vel,mul(impulse,body.invMass));
+        body.angVel+=cross(r,impulse)*body.invInertia;
       }
 
-      // Floor friction is handled with time-based damping in update().
-      // A single-point contact receives a small torque so it cannot balance forever.
-      const nearRest = Math.abs(body.vel.y)<28;
-      if (nearRest && lowest.length===1 && Math.abs(body.angVel)<.22) {
-        const centerOffset = body.pos.x-contact.x;
-        if (Math.abs(centerOffset)>1.5) {
-          body.angVel += Math.sign(centerOffset)*0.035;
-        }
-      }
+      // Do not erase a freshly thrown body's momentum. Friction is handled
+      // once per simulation step below using time-based damping.
+      if (Math.abs(body.vel.y)<10 && body.releaseGrace<=0) body.vel.y=0;
     }
 
     if (minX<0) {
-      body.pos.x -= minX;
-      if (body.vel.x<0) body.vel.x = -body.vel.x*bounce;
-      body.angVel *= .9;
+      body.pos.x-=minX;
+      if (body.vel.x<0) {
+        queueImpactBreak(body,{x:1,y:0},{x:0,y:clamp(body.pos.y,0,height)},-body.vel.x);
+        body.vel.x=-body.vel.x*wallBounce;
+      }
     }
-
     if (maxX>width) {
-      body.pos.x -= maxX-width;
-      if (body.vel.x>0) body.vel.x = -body.vel.x*bounce;
-      body.angVel *= .9;
+      body.pos.x-=maxX-width;
+      if (body.vel.x>0) {
+        queueImpactBreak(body,{x:-1,y:0},{x:width,y:clamp(body.pos.y,0,height)},body.vel.x);
+        body.vel.x=-body.vel.x*wallBounce;
+      }
     }
-
     if (minY<0) {
-      body.pos.y -= minY;
-      if (body.vel.y<0) body.vel.y = -body.vel.y*bounce;
+      body.pos.y-=minY;
+      if (body.vel.y<0) {
+        queueImpactBreak(body,{x:0,y:1},{x:clamp(body.pos.x,0,width),y:0},-body.vel.y);
+        body.vel.y=-body.vel.y*wallBounce;
+      }
     }
   }
 
-  function update(dt) {
+  function update(realDt) {
     if (paused) return;
+    impactBreakQueue.clear();
 
-    if (slowMotion) dt *= .25;
-    dt = Math.min(dt,.022);
+    // Real frame time is clamped first; slow motion only scales simulation time.
+    const clampedRealDt = clamp(realDt,0,.05);
+    const dt = clampedRealDt * (slowMotion ? .25 : 1);
 
     const fastestBodySpeed = bodies.reduce((fastest,body) =>
       Math.max(fastest,Math.hypot(body.vel.x,body.vel.y)),0);
-    const substeps = clamp(Math.ceil(5+fastestBodySpeed/450),5,10);
+    const smallestThickness=bodies.reduce((smallest,body) =>
+      Math.min(smallest,body.collisionThickness || body.radius),60);
+    const travelSteps=Math.ceil(fastestBodySpeed*dt/Math.max(3,smallestThickness*.38));
+    const speedSteps=Math.ceil(6+fastestBodySpeed/420);
+    const substeps=clamp(Math.max(6,travelSteps,speedSteps),6,18);
     const step = dt/substeps;
     const gravity = 900;
-    const damping = 0.08;
 
     for (let s=0;s<substeps;s++) {
       for (const body of bodies) {
+        body.supported = false;
+        body.supportMinX = Infinity;
+        body.supportMaxX = -Infinity;
+      }
+      for (const body of bodies) {
         if (!body.sleeping) {
-          body.vel.y += gravity*step;
+          body.vel.y += gravity*body.material.gravityScale*step;
           body.vel.x += wind*step;
 
-          const linearDamping = Math.exp(-damping*step);
-          const angularDamping = Math.exp(-damping*.7*step);
+          const linearDamping = Math.exp(-body.material.airDrag*step);
+          const angularDamping = Math.exp(-body.material.angularDrag*step);
           body.vel.x *= linearDamping;
           body.vel.y *= linearDamping;
           body.angVel *= angularDamping;
+          limitMotion(body);
         }
 
         if (body===heldBody) {
-          body.sleeping = false;
-          body.sleepTimer = 0;
-          const worldGrab = add(body.pos,rotate(heldLocalPoint,body.angle));
-          const error = sub(pointer,worldGrab);
-          const grabVelocity = mul(error,28);
-          body.vel = add(mul(body.vel,.55),mul(grabVelocity,.45));
-          body.angVel *= .72;
+          body.sleeping=false;
+          body.sleepTimer=0;
+          applyMouseJoint(body,step);
         }
 
         if (!body.sleeping) {
@@ -1731,30 +2332,27 @@
           body.angle += body.angVel*step;
           solveWorldBounds(body);
 
+          body.releaseGrace = Math.max(0,(body.releaseGrace||0)-step);
+          body.impactGrace = Math.max(0,(body.impactGrace||0)-step);
           const vertices = getWorldVertices(body);
           const onFloor = vertices.some(vertex => vertex.y >= height-11.2);
 
           if (onFloor) {
-            // These values are per-second, so settling no longer depends on FPS/substeps.
-            body.vel.x *= Math.exp(-5.2*step);
-            body.angVel *= Math.exp(-4.1*step);
-
-            const speed = Math.hypot(body.vel.x,body.vel.y);
-            const angularSpeed = Math.abs(body.angVel);
-
-            if (speed < 7 && angularSpeed < 0.055) {
-              body.sleepTimer += step;
-              if (body.sleepTimer >= 0.42) {
-                body.vel.x = 0;
-                body.vel.y = 0;
-                body.angVel = 0;
-                body.sleeping = true;
-              }
-            } else {
-              body.sleepTimer = 0;
-            }
-          } else {
-            body.sleepTimer = 0;
+            // Strong settling drag belongs only on a broad, stable support.
+            // Applying it on a single corner fights the torque from gravity.
+            const stableOnFloor = hasStableSupport(body);
+            const floorLinearDrag = body.releaseGrace>0
+              ? .16*body.material.floorDrag
+              : stableOnFloor
+                ? (1.15+4.2*body.material.dynamicFriction)*body.material.floorDrag
+                : (.8+2.4*body.material.dynamicFriction)*body.material.floorDrag;
+            const floorAngularDrag = body.releaseGrace>0
+              ? .10*body.material.floorDrag
+              : stableOnFloor
+                ? (.9+3.5*body.material.dynamicFriction)*body.material.floorDrag
+                : .04;
+            body.vel.x *= Math.exp(-floorLinearDrag*step);
+            body.angVel *= Math.exp(-floorAngularDrag*step);
           }
         }
       }
@@ -1762,7 +2360,7 @@
       // Re-detect collisions every solver pass. The old solver reused one
       // stale contact even after bodies moved, which could push them farther
       // together or leave visible overlap in stacks.
-      for (let iteration=0;iteration<9;iteration++) {
+      for (let iteration=0;iteration<10;iteration++) {
         let foundCollision = false;
 
         for (let i=0;i<bodies.length;i++) {
@@ -1776,13 +2374,26 @@
             if (!collision) continue;
             foundCollision = true;
 
-            a.sleeping = false;
-            b.sleeping = false;
-            a.sleepTimer = 0;
-            b.sleepTimer = 0;
+            const relative = sub(velocityAtPoint(b,collision.contact),velocityAtPoint(a,collision.contact));
+            const impactSpeed = Math.max(0,-dot(relative,collision.normal));
+            queueBodyImpact(a,b,collision,impactSpeed);
+            const hardImpact = impactSpeed > 55 || collision.penetration > 3.4;
+            if (hardImpact) {
+              a.sleeping = false;
+              b.sleeping = false;
+              a.sleepTimer = 0;
+              b.sleepTimer = 0;
+            }
 
-            applyImpulse(a,b,collision);
-            correctPositions(a,b,collision);
+            // Mark whichever body is above a mostly vertical contact as supported.
+            if (collision.normal.y > .45) markCollisionSupport(a,collision);
+            if (collision.normal.y < -.45) markCollisionSupport(b,collision);
+
+            // Fully sleeping stacks do not need another impulse every solver pass.
+            if (!(a.sleeping && b.sleeping)) {
+              applyImpulse(a,b,collision);
+              correctPositions(a,b,collision);
+            }
           }
         }
 
@@ -1792,9 +2403,40 @@
       // Position correction can move a body slightly through a wall/floor.
       // Clamp world bounds again after resolving body-to-body contacts.
       for (const body of bodies) solveWorldBounds(body);
+
+      // One authoritative sleep pass prevents floor bodies from accumulating
+      // sleep time twice and freezing before a stack is actually stable.
+      for (const body of bodies) {
+        if (body.sleeping) continue;
+        if (body===heldBody || body.releaseGrace>0 || !hasStableSupport(body)) {
+          body.sleepTimer=0;
+          continue;
+        }
+        const speed = Math.hypot(body.vel.x,body.vel.y);
+        if (speed < 9 && Math.abs(body.angVel) < .075) {
+          body.sleepTimer += step;
+          body.vel.x *= Math.exp(-10*step);
+          if (Math.abs(body.vel.y) < 3.5) body.vel.y = 0;
+          body.angVel *= Math.exp(-12*step);
+          if (body.sleepTimer >= body.material.sleepDelay) {
+            body.vel.x = 0;
+            body.vel.y = 0;
+            body.angVel = 0;
+            body.sleeping = true;
+          }
+        } else {
+          body.sleepTimer = 0;
+        }
+      }
     }
 
     wind *= Math.pow(.25,dt);
+    if (flash>0) flash *= Math.pow(.72,clampedRealDt*60);
+    if (helpRemaining>0) {
+      helpRemaining -= clampedRealDt;
+      if (helpRemaining<=0) document.getElementById("help").classList.add("hidden");
+    }
+    processImpactBreaks();
     bodies = bodies.filter(body =>
       body.pos.y<height+800 &&
       body.pos.x>-800 &&
@@ -1812,7 +2454,7 @@
 
   function drawMemeDetails(ctx, body) {
     const type = body.shapeType;
-    if (!["tungtung","tralalero","bombardino","capybara","doge","cheems","shrekhead","toilet","banana","amongus","creeper","roblox","human"].includes(type)) return;
+    if (!["tungtung","tralalero","bombardino","capybara","doge","cheems","shrekhead","toilet","banana","amongus","creeper","human","enderman","astronaut","ninja","knight","robot","alien","skull","controller","camera","phone","donut","planet","duck","fish","cat","bat"].includes(type)) return;
 
     const xs = body.verts.map(p=>p.x);
     const ys = body.verts.map(p=>p.y);
@@ -1860,35 +2502,54 @@
       ctx.lineWidth=Math.max(2,Math.min(w,h)*.04);
       ctx.beginPath(); ctx.moveTo(X(-.08),Y(.48)); ctx.lineTo(X(-.08),Y(.93)); ctx.stroke();
     } else if (type==="creeper") {
-      // Pixel face.
-      const s=Math.min(w,h)*.14;
+      // Large pixel face confined to the square head.
+      const headTop=Y(-1), headBottom=Y(-.27);
+      const headH=headBottom-headTop;
       ctx.fillStyle="#111";
-      ctx.fillRect(X(-.45)-s/2,Y(-.55)-s/2,s,s);
-      ctx.fillRect(X(.45)-s/2,Y(-.55)-s/2,s,s);
-      ctx.fillRect(X(-.12)-s/2,Y(-.2)-s/2,s,s);
-      ctx.fillRect(X(.12)-s/2,Y(-.2)-s/2,s,s);
-      ctx.fillRect(X(-.24)-s/2,Y(.02)-s/2,s,s*1.7);
-      ctx.fillRect(X(.24)-s/2,Y(.02)-s/2,s,s*1.7);
-    } else if (type==="roblox") {
-      // Classic yellow head/arms, blue torso and green legs.
-      ctx.fillStyle="#f4d21f";
-      ctx.fillRect(X(-.27),Y(-.95),w*.27,h*.2);
-      ctx.fillRect(X(-.52),Y(-.55),w*.12,h*.38);
-      ctx.fillRect(X(.4),Y(-.55),w*.12,h*.38);
-      ctx.fillStyle="#2887d8";
-      ctx.fillRect(X(-.27),Y(-.58),w*.27,h*.39);
-      ctx.fillStyle="#49a94d";
-      ctx.fillRect(X(-.27),Y(-.18),w*.12,h*.63);
-      ctx.fillRect(X(.03),Y(-.18),w*.12,h*.63);
+      ctx.fillRect(X(-.38),headTop+headH*.28,w*.17,headH*.20);
+      ctx.fillRect(X(.21),headTop+headH*.28,w*.17,headH*.20);
+      ctx.fillRect(X(-.14),headTop+headH*.47,w*.28,headH*.19);
+      ctx.fillRect(X(-.27),headTop+headH*.60,w*.18,headH*.26);
+      ctx.fillRect(X(.09),headTop+headH*.60,w*.18,headH*.26);
+      ctx.fillRect(X(-.09),headTop+headH*.66,w*.18,headH*.25);
+      // A few head-only patches keep the pixel texture without putting blocks on the limbs.
+      ctx.fillStyle="rgba(30,110,35,.24)";
+      ctx.fillRect(X(-.58),headTop+headH*.06,w*.18,headH*.16);
+      ctx.fillRect(X(.34),headTop+headH*.06,w*.20,headH*.17);
+    } else if (type==="zombie") {
+      ctx.fillStyle="#233";
+      ctx.fillRect(X(-.16),Y(-.82),w*.10,h*.055);
+      ctx.fillRect(X(.06),Y(-.82),w*.10,h*.055);
+      ctx.fillStyle="#355b8a"; ctx.fillRect(X(-.28),Y(-.45),w*.56,h*.44);
+      ctx.fillStyle="#334a2d"; ctx.fillRect(X(-.25),Y(.34),w*.18,h*.60); ctx.fillRect(X(.07),Y(.34),w*.18,h*.60);
+    } else if (type==="skeleton") {
       ctx.fillStyle="#111";
-      ctx.beginPath(); ctx.arc(X(-.1),Y(-.82),Math.min(w,h)*.022,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(X(.1),Y(-.82),Math.min(w,h)*.022,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(X(0),Y(-.76),Math.min(w,h)*.08,0,Math.PI); ctx.stroke();
+      ctx.fillRect(X(-.14),Y(-.82),w*.09,h*.07); ctx.fillRect(X(.05),Y(-.82),w*.09,h*.07);
+      ctx.fillRect(X(-.06),Y(-.68),w*.12,h*.05);
+      ctx.strokeStyle="#777"; ctx.beginPath(); ctx.moveTo(X(-.10),Y(-.34)); ctx.lineTo(X(.10),Y(.18)); ctx.stroke();
+    } else if (type==="enderman") {
+      ctx.fillStyle="#b63cff"; ctx.fillRect(X(-.16),Y(-.80),w*.12,h*.045); ctx.fillRect(X(.04),Y(-.80),w*.12,h*.045);
+    } else if (type==="astronaut") {
+      ctx.fillStyle="#8fd7ff"; ctx.beginPath(); ctx.roundRect(X(-.22),Y(-.86),w*.44,h*.22,Math.min(w,h)*.06); ctx.fill(); ctx.stroke();
+      ctx.fillStyle="#b7bcc4"; ctx.fillRect(X(-.22),Y(-.38),w*.44,h*.36);
+      ctx.fillStyle="#d33"; ctx.fillRect(X(.02),Y(-.28),w*.08,h*.05);
+    } else if (type==="ninja") {
+      ctx.fillStyle="#e9d0a4"; ctx.fillRect(X(-.20),Y(-.84),w*.40,h*.12);
+      ctx.fillStyle="#111"; ctx.fillRect(X(-.11),Y(-.80),w*.06,h*.025); ctx.fillRect(X(.05),Y(-.80),w*.06,h*.025);
+      ctx.strokeStyle="#b21f2d"; ctx.lineWidth=Math.max(2,Math.min(w,h)*.04); ctx.beginPath(); ctx.moveTo(X(-.24),Y(-.46)); ctx.lineTo(X(.24),Y(-.12)); ctx.stroke();
+    } else if (type==="knight") {
+      ctx.fillStyle="#555"; ctx.fillRect(X(-.22),Y(-.84),w*.44,h*.07);
+      ctx.fillStyle="#6f7780"; ctx.fillRect(X(-.22),Y(-.40),w*.44,h*.48);
+      ctx.strokeStyle="#d8d8d8"; ctx.beginPath(); ctx.moveTo(X(0),Y(-.36)); ctx.lineTo(X(0),Y(.02)); ctx.stroke();
     } else if (type==="human") {
+      // Head and shirt details for the corrected T-pose body.
       ctx.fillStyle="#f1c27d";
-      ctx.beginPath(); ctx.arc(X(0),Y(-.8),Math.min(w,h)*.12,0,Math.PI*2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle="#4d84c4";
-      ctx.fillRect(X(-.16),Y(-.56),w*.16,h*.38);
+      ctx.beginPath(); ctx.arc(X(0),Y(-.84),Math.min(w,h)*.105,0,Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle="rgba(255,255,255,.20)";
+      ctx.fillRect(X(-.18),Y(-.58),w*.18,h*.50);
+      ctx.fillStyle="#222";
+      ctx.beginPath(); ctx.arc(X(-.04),Y(-.86),Math.min(w,h)*.014,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(X(.04),Y(-.86),Math.min(w,h)*.014,0,Math.PI*2); ctx.fill();
     } else if (type==="tungtung") {
       eye(-.17,-.42,.06); eye(.13,-.42,.06);
       ctx.beginPath();
@@ -1958,19 +2619,134 @@
     } else if (type==="banana") {
       ctx.strokeStyle="#8d6918";
       ctx.beginPath(); ctx.moveTo(X(-.72),Y(.08)); ctx.quadraticCurveTo(X(0),Y(.35),X(.65),Y(-.2)); ctx.stroke();
+    } else if (type==="robot") {
+      ctx.fillStyle="rgba(255,255,255,.42)";
+      ctx.fillRect(X(-.34),Y(-.82),w*.34,h*.22);
+      ctx.strokeRect(X(-.34),Y(-.82),w*.34,h*.22);
+      eye(-.18,-.69,.035); eye(.18,-.69,.035);
+      ctx.beginPath(); ctx.moveTo(X(-.2),Y(-.42)); ctx.lineTo(X(.2),Y(-.42)); ctx.stroke();
+    } else if (type==="alien") {
+      ctx.fillStyle="#171717";
+      ctx.beginPath(); ctx.ellipse(X(-.23),Y(-.22),w*.10,h*.19,-.28,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(X(.23),Y(-.22),w*.10,h*.19,.28,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(X(0),Y(.42),Math.min(w,h)*.09,.12*Math.PI,.88*Math.PI); ctx.stroke();
+    } else if (type==="skull") {
+      ctx.fillStyle="#171717";
+      ctx.beginPath(); ctx.ellipse(X(-.24),Y(-.25),w*.10,h*.13,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(X(.24),Y(-.25),w*.10,h*.13,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(X(0),Y(-.02)); ctx.lineTo(X(-.08),Y(.18)); ctx.lineTo(X(.08),Y(.18)); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(X(-.22),Y(.48)); ctx.lineTo(X(.22),Y(.48)); ctx.stroke();
+    } else if (type==="controller") {
+      ctx.lineWidth=Math.max(2,Math.min(w,h)*.05);
+      ctx.beginPath(); ctx.moveTo(X(-.48),Y(-.12)); ctx.lineTo(X(-.48),Y(.28));
+      ctx.moveTo(X(-.62),Y(.08)); ctx.lineTo(X(-.34),Y(.08)); ctx.stroke();
+      ctx.fillStyle="#171717";
+      ctx.beginPath(); ctx.arc(X(.38),Y(-.02),Math.min(w,h)*.055,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(X(.58),Y(.18),Math.min(w,h)*.055,0,Math.PI*2); ctx.fill();
+    } else if (type==="camera") {
+      ctx.fillStyle="rgba(255,255,255,.30)";
+      ctx.beginPath(); ctx.arc(X(.12),Y(.10),Math.min(w,h)*.24,0,Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle="#171717";
+      ctx.beginPath(); ctx.arc(X(.12),Y(.10),Math.min(w,h)*.10,0,Math.PI*2); ctx.fill();
+      ctx.fillRect(X(-.72),Y(-.30),w*.13,h*.07);
+    } else if (type==="phone") {
+      ctx.fillStyle="rgba(255,255,255,.35)";
+      ctx.fillRect(X(-.37),Y(-.72),w*.37,h*.625); ctx.strokeRect(X(-.37),Y(-.72),w*.37,h*.625);
+      ctx.fillStyle="#171717";
+      ctx.beginPath(); ctx.arc(X(0),Y(.72),Math.min(w,h)*.035,0,Math.PI*2); ctx.fill();
+    } else if (type==="donut") {
+      ctx.fillStyle="#fff";
+      ctx.beginPath(); ctx.arc(X(0),Y(0),Math.min(w,h)*.20,0,Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle="rgba(255,255,255,.65)";
+      ctx.beginPath(); ctx.arc(X(0),Y(0),Math.min(w,h)*.36,0,Math.PI*2); ctx.stroke();
+    } else if (type==="planet") {
+      ctx.fillStyle="rgba(255,255,255,.28)";
+      for (const [nx,ny,s] of [[-.32,-.24,.08],[.28,-.08,.12],[-.06,.35,.07]]) {
+        ctx.beginPath(); ctx.arc(X(nx),Y(ny),Math.min(w,h)*s,0,Math.PI*2); ctx.fill();
+      }
+    } else if (type==="duck") {
+      eye(.38,-.47,.045);
+      ctx.beginPath(); ctx.moveTo(X(.58),Y(-.30)); ctx.lineTo(X(.90),Y(-.22)); ctx.stroke();
+      ctx.beginPath(); ctx.arc(X(-.18),Y(.05),Math.min(w,h)*.20,.1*Math.PI,.95*Math.PI); ctx.stroke();
+    } else if (type==="fish") {
+      eye(-.48,-.16,.045);
+      ctx.beginPath(); ctx.moveTo(X(-.28),Y(-.35)); ctx.quadraticCurveTo(X(-.02),Y(0),X(-.28),Y(.35)); ctx.stroke();
+    } else if (type==="cat") {
+      eye(-.25,-.16,.045); eye(.25,-.16,.045);
+      ctx.fillStyle="#171717";
+      ctx.beginPath(); ctx.moveTo(X(0),Y(.05)); ctx.lineTo(X(-.07),Y(.15)); ctx.lineTo(X(.07),Y(.15)); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(X(0),Y(.16)); ctx.quadraticCurveTo(X(-.16),Y(.3),X(-.28),Y(.2));
+      ctx.moveTo(X(0),Y(.16)); ctx.quadraticCurveTo(X(.16),Y(.3),X(.28),Y(.2)); ctx.stroke();
+    } else if (type==="bat") {
+      ctx.fillStyle="#171717";
+      ctx.beginPath(); ctx.arc(X(-.08),Y(-.08),Math.min(w,h)*.035,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(X(.08),Y(-.08),Math.min(w,h)*.035,0,Math.PI*2); ctx.fill();
     }
 
     ctx.restore();
   }
 
+  function drawMaterialDetails(context,body) {
+    if (!MATERIAL_SAMPLE_TYPES.has(body.shapeType)) return;
+    const xs=body.verts.map(point=>point.x);
+    const ys=body.verts.map(point=>point.y);
+    const minX=Math.min(...xs), maxX=Math.max(...xs);
+    const minY=Math.min(...ys), maxY=Math.max(...ys);
+    const w=maxX-minX, h=maxY-minY;
+    context.save();
+    context.translate(body.pos.x,body.pos.y);
+    context.rotate(body.angle);
+    context.lineWidth=Math.max(1,Math.min(w,h)*.035);
+    context.strokeStyle="rgba(30,35,40,.42)";
+    context.fillStyle="rgba(255,255,255,.42)";
+
+    if (body.shapeType==="materialglass" || body.shapeType==="materialice") {
+      context.beginPath();
+      context.moveTo(minX+w*.18,maxY-h*.12);
+      context.lineTo(maxX-w*.2,minY+h*.1);
+      context.moveTo(minX+w*.48,maxY-h*.1);
+      context.lineTo(maxX-w*.1,minY+h*.38);
+      context.strokeStyle="rgba(255,255,255,.8)";
+      context.stroke();
+    } else if (body.shapeType==="materialwood") {
+      context.beginPath();
+      context.moveTo(minX+w*.12,minY+h*.34); context.lineTo(maxX-w*.12,minY+h*.28);
+      context.moveTo(minX+w*.12,minY+h*.68); context.lineTo(maxX-w*.12,minY+h*.75);
+      context.stroke();
+    } else if (body.shapeType==="materialmetal") {
+      context.beginPath();
+      context.moveTo(minX+w*.1,minY+h*.25); context.lineTo(maxX-w*.1,minY+h*.25);
+      context.moveTo(minX+w*.1,maxY-h*.25); context.lineTo(maxX-w*.1,maxY-h*.25);
+      context.strokeStyle="rgba(255,255,255,.48)";
+      context.stroke();
+    } else if (body.shapeType==="materialstone" || body.shapeType==="materialfoam") {
+      for (const [px,py] of [[.25,.28],[.68,.22],[.48,.58],[.22,.76],[.76,.72]]) {
+        context.beginPath();
+        context.arc(minX+w*px,minY+h*py,Math.max(1,Math.min(w,h)*.035),0,Math.PI*2);
+        context.fill();
+      }
+    } else if (body.shapeType==="materialrubber") {
+      context.beginPath();
+      context.moveTo(minX+w*.2,minY+h*.5); context.lineTo(maxX-w*.2,minY+h*.5);
+      context.moveTo(minX+w*.5,minY+h*.2); context.lineTo(minX+w*.5,maxY-h*.2);
+      context.stroke();
+    } else if (body.shapeType==="materialceramic") {
+      context.strokeStyle="rgba(85,100,120,.45)";
+      context.strokeRect(minX+w*.12,minY+h*.12,w*.76,h*.76);
+    }
+    context.restore();
+  }
+
   function drawBody(body) {
-    const vertices = getWorldVertices(body);
+    const polygons = getWorldDrawPolygons(body);
 
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(vertices[0].x,vertices[0].y);
-    for (let i=1;i<vertices.length;i++) ctx.lineTo(vertices[i].x,vertices[i].y);
-    ctx.closePath();
+    for (const vertices of polygons) {
+      ctx.moveTo(vertices[0].x,vertices[0].y);
+      for (let i=1;i<vertices.length;i++) ctx.lineTo(vertices[i].x,vertices[i].y);
+      ctx.closePath();
+    }
 
     ctx.shadowColor = "rgba(0,0,0,.26)";
     ctx.shadowBlur = 7;
@@ -1986,14 +2762,17 @@
 
     ctx.globalAlpha = .18;
     ctx.beginPath();
-    ctx.moveTo(vertices[0].x,vertices[0].y);
-    for (let i=1;i<Math.min(3,vertices.length);i++) ctx.lineTo(vertices[i].x,vertices[i].y);
+    for (const vertices of polygons) {
+      ctx.moveTo(vertices[0].x,vertices[0].y);
+      for (let i=1;i<Math.min(3,vertices.length);i++) ctx.lineTo(vertices[i].x,vertices[i].y);
+    }
     ctx.strokeStyle = "white";
     ctx.lineWidth = 3;
     ctx.stroke();
 
     ctx.restore();
     drawMemeDetails(ctx,body);
+    drawMaterialDetails(ctx,body);
   }
 
   function drawSliceLine() {
@@ -2012,16 +2791,77 @@
     ctx.restore();
   }
 
+
+  function drawSpawnDraft() {
+    if (!drawSpawnStart || !pointer.down || mode!=="spawn") return;
+    ctx.save();
+    ctx.strokeStyle="#111";
+    ctx.fillStyle="rgba(80,80,80,.16)";
+    ctx.setLineDash([7,5]);
+    ctx.lineWidth=2;
+    if (selectedSpawnType==="line" || selectedSpawnType==="compound") {
+      ctx.lineCap="round";
+      ctx.lineWidth=Math.max(4,Number(ui.sizeSlider.value)||12);
+      ctx.beginPath(); ctx.moveTo(drawSpawnStart.x,drawSpawnStart.y); ctx.lineTo(pointer.x,pointer.y); ctx.stroke();
+    } else if (selectedSpawnType==="rectangle") {
+      const x=Math.min(drawSpawnStart.x,pointer.x), y=Math.min(drawSpawnStart.y,pointer.y);
+      const w=Math.abs(pointer.x-drawSpawnStart.x), h=Math.abs(pointer.y-drawSpawnStart.y);
+      ctx.fillRect(x,y,w,h); ctx.strokeRect(x,y,w,h);
+    }
+    ctx.restore();
+  }
+
+  function drawWeldDraft() {
+    if (!weldDraftParts.length) return;
+    ctx.save();
+    ctx.fillStyle=weldDraftColor || "#777";
+    ctx.strokeStyle="#34302c";
+    ctx.lineWidth=2;
+    ctx.setLineDash([6,4]);
+    for (const vertices of weldDraftParts) {
+      ctx.beginPath();
+      ctx.moveTo(vertices[0].x,vertices[0].y);
+      for (let i=1;i<vertices.length;i++) ctx.lineTo(vertices[i].x,vertices[i].y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawGrabJoint() {
+    if (!heldBody || !heldLocalPoint) return;
+    const grabPoint=add(heldBody.pos,rotate(heldLocalPoint,heldBody.angle));
+    ctx.save();
+    ctx.strokeStyle="rgba(0,0,0,.38)";
+    ctx.fillStyle="#fff";
+    ctx.lineWidth=1.5;
+    ctx.setLineDash([4,4]);
+    ctx.beginPath();
+    ctx.moveTo(grabPoint.x,grabPoint.y);
+    ctx.lineTo(pointer.x,pointer.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(grabPoint.x,grabPoint.y,4,0,Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle="#111";
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function draw() {
     drawBackground();
 
     for (const body of bodies) drawBody(body);
+    drawGrabJoint();
+    drawWeldDraft();
     drawSliceLine();
+    drawSpawnDraft();
 
     if (flash>0) {
       ctx.fillStyle = `rgba(255,245,225,${flash})`;
       ctx.fillRect(0,0,width,height);
-      flash *= .72;
     }
 
       }
@@ -2033,9 +2873,73 @@
       y:event.clientY-rect.top
     };
   }
+
+  function recordMouseTrail(event) {
+    const samples=typeof event.getCoalescedEvents==="function"
+      ? event.getCoalescedEvents()
+      : [event];
+    const source=samples.length ? samples : [event];
+    for (const sample of source) {
+      const p=pointerPosition(sample);
+      const time=Number.isFinite(sample.timeStamp) ? sample.timeStamp : performance.now();
+      const last=mouseTrail[mouseTrail.length-1];
+      if (!last || time>last.time || length(sub(p,last))>.05) {
+        mouseTrail.push({...p,time});
+      }
+    }
+    const newest=mouseTrail[mouseTrail.length-1]?.time || 0;
+    while (mouseTrail.length>32 || (mouseTrail.length>2 && newest-mouseTrail[0].time>220)) {
+      mouseTrail.shift();
+    }
+  }
+
+  function estimateReleaseVelocity(samples,referenceTime=performance.now()) {
+    if (samples.length<2) return null;
+    let motionEnd=-1;
+    for (let i=samples.length-1;i>0;i--) {
+      if (length(sub(samples[i],samples[i-1]))>.35) {
+        motionEnd=i;
+        break;
+      }
+    }
+    if (motionEnd<1) return null;
+
+    const endTime=samples[motionEnd].time;
+    if (referenceTime-endTime>160) return null;
+    let velocity={x:0,y:0};
+    let totalWeight=0;
+    for (let i=1;i<=motionEnd;i++) {
+      const current=samples[i];
+      const previous=samples[i-1];
+      const dt=(current.time-previous.time)/1000;
+      const delta=sub(current,previous);
+      const distance=length(delta);
+      const age=endTime-current.time;
+      if (dt<=.001 || dt>.12 || distance<.1 || age>150) continue;
+
+      let segmentVelocity=mul(delta,1/dt);
+      const segmentSpeed=length(segmentVelocity);
+      if (segmentSpeed>2400) segmentVelocity=mul(segmentVelocity,2400/segmentSpeed);
+      const weight=Math.exp(-age/55)*clamp(distance/3,.3,3);
+      velocity=add(velocity,mul(segmentVelocity,weight));
+      totalWeight+=weight;
+    }
+    return totalWeight>0 ? mul(velocity,1/totalWeight) : null;
+  }
   const spawnables = [
     {id:"random",name:"random shape",tag:"mix"},
     {id:"box",name:"box",tag:"basic"},
+    {id:"line",name:"drag line",tag:"draw"},
+    {id:"rectangle",name:"drag rectangle",tag:"draw"},
+    {id:"compound",name:"welded parts (paused only)",tag:"draw"},
+    {id:"materialglass",name:"glass block",tag:"material"},
+    {id:"materialceramic",name:"ceramic block",tag:"material"},
+    {id:"materialwood",name:"wood block",tag:"material"},
+    {id:"materialstone",name:"stone block",tag:"material"},
+    {id:"materialmetal",name:"metal block",tag:"material"},
+    {id:"materialrubber",name:"rubber block",tag:"material"},
+    {id:"materialice",name:"ice block",tag:"material"},
+    {id:"materialfoam",name:"foam block",tag:"material"},
     {id:"triangle",name:"triangle",tag:"basic"},
     {id:"pentagon",name:"pentagon",tag:"basic"},
     {id:"hexagon",name:"hexagon",tag:"basic"},
@@ -2044,12 +2948,17 @@
     {id:"diamond",name:"diamond",tag:"basic"},
     {id:"arrow",name:"arrow",tag:"symbol"},
     {id:"cross",name:"cross",tag:"symbol"},
-    {id:"human",name:"t-pose human",tag:"meme"},
-    {id:"amongus",name:"among us",tag:"meme"},
-    {id:"creeper",name:"creeper",tag:"meme"},
-    {id:"roblox",name:"blocky noob",tag:"meme"},
-    {id:"robot",name:"robot",tag:"meme"},
-    {id:"alien",name:"alien head",tag:"meme"},
+    {id:"human",name:"t-pose human",tag:"character"},
+    {id:"amongus",name:"among us",tag:"character"},
+    {id:"creeper",name:"creeper",tag:"character"},
+    {id:"zombie",name:"minecraft zombie",tag:"character"},
+    {id:"skeleton",name:"minecraft skeleton",tag:"character"},
+    {id:"enderman",name:"enderman",tag:"character"},
+    {id:"astronaut",name:"astronaut",tag:"character"},
+    {id:"ninja",name:"ninja",tag:"character"},
+    {id:"knight",name:"knight",tag:"character"},
+    {id:"robot",name:"robot",tag:"character"},
+    {id:"alien",name:"alien head",tag:"character"},
     {id:"ghost",name:"ghost",tag:"spooky"},
     {id:"skull",name:"skull",tag:"spooky"},
     {id:"snowman",name:"snowman",tag:"character"},
@@ -2082,7 +2991,6 @@
     {id:"boot",name:"giant boot",tag:"object"},
     {id:"trophy",name:"trophy",tag:"object"},
     {id:"flask",name:"potion flask",tag:"object"},
-    {id:"musicnote",name:"music note",tag:"symbol"},
     {id:"house",name:"house",tag:"object"},
     {id:"pizza",name:"pizza slice",tag:"food"},
     {id:"mushroom",name:"mushroom",tag:"food"},
@@ -2111,6 +3019,10 @@
     const cx=50, cy=30, r=22;
     if (type==="random") return regularPolygon(cx,cy,r,5,-Math.PI/2);
     if (type==="box") return [{x:25,y:12},{x:75,y:12},{x:75,y:48},{x:25,y:48}];
+    if (type==="line") return [{x:15,y:25},{x:85,y:25},{x:85,y:35},{x:15,y:35}];
+    if (type==="rectangle") return [{x:20,y:14},{x:80,y:14},{x:80,y:46},{x:20,y:46}];
+    if (type==="compound") return [{x:16,y:24},{x:44,y:24},{x:44,y:10},{x:56,y:10},{x:56,y:24},{x:84,y:24},{x:84,y:36},{x:56,y:36},{x:56,y:50},{x:44,y:50},{x:44,y:36},{x:16,y:36}];
+    if (MATERIAL_SAMPLE_TYPES.has(type)) return [{x:28,y:8},{x:72,y:8},{x:72,y:52},{x:28,y:52}];
     if (type==="triangle") return regularPolygon(cx,cy,r,3,-Math.PI/2);
     if (type==="pentagon") return regularPolygon(cx,cy,r,5,-Math.PI/2);
     if (type==="hexagon") return regularPolygon(cx,cy,r,6,0);
@@ -2171,18 +3083,30 @@
     }
 
     preview.closePath();
-    preview.fillStyle = type==="random" ? "#8a8a8a" : "#d7bd53";
+    preview.fillStyle = MATERIAL_SAMPLE_COLORS[type] || (type==="random" ? "#8a8a8a" : "#d7bd53");
     preview.fill();
     preview.lineWidth=1.5;
     preview.strokeStyle="#111";
     preview.stroke();
 
-    if (["tungtung","tralalero","bombardino","capybara","doge","cheems","shrekhead","toilet","banana","amongus","creeper","roblox","human"].includes(type)) {
+    if (["tungtung","tralalero","bombardino","capybara","doge","cheems","shrekhead","toilet","banana","amongus","creeper","human","enderman","astronaut","ninja","knight"].includes(type)) {
       const localVerts = points.map(p=>({
         x:(p.x*scale+offsetX)-cssWidth*.5,
         y:(p.y*scale+offsetY)-cssHeight*.5
       }));
       drawMemeDetails(preview,{
+        shapeType:type,
+        verts:localVerts,
+        pos:{x:cssWidth*.5,y:cssHeight*.5},
+        angle:0
+      });
+    }
+    if (MATERIAL_SAMPLE_TYPES.has(type)) {
+      const localVerts=points.map(point=>({
+        x:(point.x*scale+offsetX)-cssWidth*.5,
+        y:(point.y*scale+offsetY)-cssHeight*.5
+      }));
+      drawMaterialDetails(preview,{
         shapeType:type,
         verts:localVerts,
         pos:{x:cssWidth*.5,y:cssHeight*.5},
@@ -2258,6 +3182,7 @@
         const savedScroll = ui.spawnOptions.scrollTop;
         selectedSpawnType = item.id;
         ui.selectedSpawn.textContent = "selected: " + item.name;
+        setMode(mode);
         renderSpawnOptions(ui.spawnSearch.value, true);
 
         requestAnimationFrame(() => {
@@ -2355,6 +3280,49 @@ if ("ResizeObserver" in window) {
   renderCategoryFilters();
   renderSpawnOptions();
 
+
+  function segmentPolygon(start,end,thickness) {
+    const delta=sub(end,start);
+    if (length(delta)<8) return null;
+    const n=mul(perpendicular(normalize(delta)),thickness*.5);
+    return [add(start,n),add(end,n),sub(end,n),sub(start,n)];
+  }
+
+  function finalizeWeldDraft() {
+    if (!weldDraftParts.length) return;
+    const body=bodyFromCompoundPolygons(weldDraftParts,{
+      color:weldDraftColor,
+      material:materialFor("compound")
+    });
+    if (body) bodies.push(body);
+    weldDraftParts=[];
+    weldDraftColor=null;
+  }
+
+  function createDraggedShape(type,start,end) {
+    if (type==="line") {
+      const thickness=Math.max(4,Number(ui.sizeSlider.value)||12);
+      const vertices=segmentPolygon(start,end,thickness);
+      if (!vertices) return;
+      const body=bodyFromWorldVertices(vertices,{color:palette[Math.floor(Math.random()*palette.length)],shapeType:"line",material:materialFor("line")});
+      bodies.push(body);
+    } else if (type==="rectangle") {
+      if (Math.abs(end.x-start.x)<6 || Math.abs(end.y-start.y)<6) return;
+      const vertices=[
+        {x:start.x,y:start.y},{x:end.x,y:start.y},
+        {x:end.x,y:end.y},{x:start.x,y:end.y}
+      ];
+      const body=bodyFromWorldVertices(vertices,{color:palette[Math.floor(Math.random()*palette.length)],shapeType:"rectangle",material:materialFor("rectangle")});
+      bodies.push(body);
+    } else if (type==="compound" && paused) {
+      const thickness=Math.max(6,Number(ui.sizeSlider.value)||18);
+      const vertices=segmentPolygon(start,end,thickness);
+      if (!vertices) return;
+      if (!weldDraftColor) weldDraftColor=palette[Math.floor(Math.random()*palette.length)];
+      weldDraftParts.push(vertices);
+    }
+  }
+
 function setMode(nextMode) {
     mode = nextMode;
 
@@ -2362,7 +3330,8 @@ function setMode(nextMode) {
       button.classList.toggle("active", button.dataset.mode === mode);
     });
 
-    canvas.style.cursor =
+    canvas.style.cursor = (!paused && mode==="spawn" && selectedSpawnType==="compound") ||
+      (paused && mode!=="slice" && mode!=="spawn" && mode!=="delete") ? "not-allowed" :
       mode === "drag" ? "grab" :
       mode === "spawn" ? "copy" :
       mode === "delete" ? "not-allowed" :
@@ -2381,16 +3350,25 @@ function setMode(nextMode) {
 
 
   canvas.addEventListener("pointerdown",event=>{
+    // Right-click spawning is handled once by the contextmenu event below.
+    if (event.button!==0) return;
     const p = pointerPosition(event);
     pointer.x = p.x;
     pointer.y = p.y;
+    const pausedEditMode = mode==="slice" || mode==="spawn" || mode==="delete";
+    if (paused && !pausedEditMode) return;
     pointer.down = true;
     canvas.setPointerCapture(event.pointerId);
 
     if (mode==="slice") {
       sliceStart = p;
     } else if (mode==="spawn") {
-      spawn(p.x,p.y);
+      if (selectedSpawnType==="compound" && !paused) return;
+      if (selectedSpawnType==="line" || selectedSpawnType==="rectangle" || selectedSpawnType==="compound") {
+        drawSpawnStart={...p};
+      } else {
+        spawn(p.x,p.y);
+      }
     } else if (mode==="delete") {
       const body = getBodyAt(p);
       if (body) bodies = bodies.filter(item=>item!==body);
@@ -2400,7 +3378,8 @@ function setMode(nextMode) {
         heldBody.sleeping = false;
         heldBody.sleepTimer = 0;
         heldLocalPoint = rotate(sub(p,heldBody.pos),-heldBody.angle);
-        mouseTrail = [{...p,time:performance.now()}];
+        mouseTrail = [];
+        recordMouseTrail(event);
         canvas.style.cursor = "grabbing";
       }
     }
@@ -2411,9 +3390,8 @@ function setMode(nextMode) {
     pointer.x = p.x;
     pointer.y = p.y;
 
-    if (heldBody) {
-      mouseTrail.push({...p,time:performance.now()});
-      while (mouseTrail.length>7) mouseTrail.shift();
+    if (!paused && heldBody) {
+      recordMouseTrail(event);
     }
   });
 
@@ -2422,23 +3400,37 @@ function setMode(nextMode) {
     pointer.x = p.x;
     pointer.y = p.y;
     pointer.down = false;
+    const pausedEditMode = mode==="slice" || mode==="spawn" || mode==="delete";
+    if (paused && !pausedEditMode) return;
 
     if (mode==="slice" && sliceStart && length(sub(p,sliceStart))>10) {
       performSlice(sliceStart,p);
+    }
+    if (mode==="spawn" && drawSpawnStart) {
+      createDraggedShape(selectedSpawnType,drawSpawnStart,p);
+      drawSpawnStart=null;
     }
 
     sliceStart = null;
 
     if (heldBody) {
-      if (mouseTrail.length>=2) {
-        const first = mouseTrail[0];
-        const last = mouseTrail[mouseTrail.length-1];
-        const time = Math.max(.02,(last.time-first.time)/1000);
+      recordMouseTrail(event);
+      const releaseVelocity=estimateReleaseVelocity(mouseTrail);
+      if (releaseVelocity) {
+        // Match velocity at the grabbed point while retaining the angular
+        // momentum created by an off-center throw.
+        const worldOffset=rotate(heldLocalPoint,heldBody.angle);
+        const rotationalVelocity=mul(perpendicular(worldOffset),heldBody.angVel);
+        const targetCenterVelocity=sub(releaseVelocity,rotationalVelocity);
         heldBody.vel = {
-          x:clamp((last.x-first.x)/time,-1800,1800),
-          y:clamp((last.y-first.y)/time,-1800,1800)
+          x:heldBody.vel.x*.08 + targetCenterVelocity.x*.92,
+          y:heldBody.vel.y*.08 + targetCenterVelocity.y*.92
         };
+        limitMotion(heldBody);
       }
+      heldBody.releaseGrace = 0.42;
+      heldBody.sleeping = false;
+      heldBody.sleepTimer = 0;
 
       heldBody = null;
       heldLocalPoint = null;
@@ -2446,6 +3438,18 @@ function setMode(nextMode) {
       canvas.style.cursor = "grab";
     }
   });
+
+  function cancelActiveInteraction() {
+    drawSpawnStart=null;
+    heldBody=null;
+    heldLocalPoint=null;
+    mouseTrail=[];
+    sliceStart=null;
+    pointer.down=false;
+    setMode(mode);
+  }
+
+  canvas.addEventListener("pointercancel",cancelActiveInteraction);
 
   canvas.addEventListener("contextmenu",event=>{
     event.preventDefault();
@@ -2468,38 +3472,88 @@ function setMode(nextMode) {
   function resetWorld() {
     bodies = [];
     cuts = 0;
-    heldBody = null;
-    sliceStart = null;
+    cancelActiveInteraction();
+    weldDraftParts = [];
+    weldDraftColor = null;
+    impactBreakQueue.clear();
   }
 
   document.getElementById("reset").onclick = resetWorld;
 
-  ui.pause.onclick = ()=>{
-    paused = !paused;
-    ui.pause.textContent = paused ? "resume" : "pause";
-    ui.pauseBadge.style.display = paused ? "block" : "none";
-  };
+  function setPaused(nextPaused) {
+    if (paused === nextPaused) return;
+    if (paused && !nextPaused) finalizeWeldDraft();
+    paused = nextPaused;
 
-  ui.slow.onclick = ()=>{
-    slowMotion = !slowMotion;
+    if (paused) {
+      // End active grabs/deletes; Slice and Spawn become deliberate pause-edit tools.
+      cancelActiveInteraction();
+    }
+
+    // Discard wall-clock time spent paused so resuming cannot create a jump.
+    previousTime = performance.now();
+    ui.pause.textContent = paused ? "Resume" : "Pause";
+    ui.pause.setAttribute("aria-pressed", String(paused));
+    ui.pause.classList.toggle("active",paused);
+    setMode(mode);
+  }
+
+  ui.pause.onclick = () => setPaused(!paused);
+
+  function setSlowMotion(nextSlowMotion) {
+    slowMotion = nextSlowMotion;
     ui.slow.classList.toggle("active",slowMotion);
-  };
+    ui.slow.setAttribute("aria-pressed",String(slowMotion));
+  }
+
+  ui.slow.onclick = ()=>setSlowMotion(!slowMotion);
+
+  function setImpactMode(nextImpactMode) {
+    impactMode = nextImpactMode;
+    impactBreakQueue.clear();
+    ui.impact.textContent = impactMode ? "Impact: on" : "Impact: off";
+    ui.impact.setAttribute("aria-pressed",String(impactMode));
+    ui.impact.classList.toggle("active",impactMode);
+  }
+
+  ui.impact.onclick = ()=>setImpactMode(!impactMode);
 
   
   
   addEventListener("keydown",event=>{
+    const target = event.target;
+    const typing = target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      target?.isContentEditable;
+
     if (event.code==="Space") {
+      if (typing || event.repeat) return;
       event.preventDefault();
-      ui.pause.click();
+      setPaused(!paused);
+    } else if (event.key==="Escape") {
+      if (typing) return;
+      cancelActiveInteraction();
     } else if (event.key.toLowerCase()==="r") {
+      if (typing) return;
       resetWorld();
+    } else if (event.key.toLowerCase()==="s") {
+      if (typing || event.repeat) return;
+      setSlowMotion(!slowMotion);
+    } else if (event.key.toLowerCase()==="i") {
+      if (typing || event.repeat) return;
+      setImpactMode(!impactMode);
     } else if (event.key==="1") {
+      if (typing) return;
       setMode("slice");
     } else if (event.key==="2") {
+      if (typing) return;
       setMode("drag");
     } else if (event.key==="3") {
+      if (typing) return;
       setMode("spawn");
     } else if (event.key==="4") {
+      if (typing) return;
       setMode("delete");
     }
   });
@@ -2514,15 +3568,13 @@ function setMode(nextMode) {
   };
 
   addEventListener("resize",resize);
+  addEventListener("visibilitychange",() => {
+    previousTime = performance.now();
+    if (document.hidden) cancelActiveInteraction();
+  });
   resize();
   resetWorld();
   setMode(mode);
-
-  setTimeout(() => {
-    document.getElementById("help").classList.add("hidden");
-  }, 5000);
-
-  let previousTime = performance.now();
 
   function frame(now) {
     const dt = (now-previousTime)/1000;
