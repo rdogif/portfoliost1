@@ -1,0 +1,2526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rishaan's Slicing Test</title>
+<style>
+  :root {
+    --panel: #fff;
+    --panel-dark: #000;
+    --ink: #000;
+    --accent: #000;
+    --accent-dark: #000;
+    --line: #aaa397;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #fff;
+    font-family: "Trebuchet MS", Arial, sans-serif;
+    color: var(--ink);
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+  }
+
+  #toolbar {
+    position: fixed;
+    left: 14px;
+    top: 14px;
+    width: 230px;
+    background: var(--panel);
+    border: 1px solid var(--panel-dark);
+    padding: 10px;
+    user-select: none;
+  }
+
+  h1 {
+    margin: 0 0 3px;
+    font-family: Arial, sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  .subtitle {
+    font-size: 10px;
+    color: #555;
+    border-bottom: 1px solid #000;
+    padding-bottom: 7px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+  }
+
+  .mode-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+
+  button, select {
+    font: inherit;
+    font-size: 12px;
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    padding: 7px 8px;
+    cursor: pointer;
+    border-radius: 0;
+  }
+
+  button:hover, select:hover { background: #eee; }
+
+  button.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent-dark);
+  }
+
+  button:active { transform: translate(1px, 1px); }
+
+  select { width: 100%; margin-top: 7px; }
+
+  label {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 9px;
+    font-size: 11px;
+    color: #45413b;
+  }
+
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+  }
+
+  .actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 9px;
+  }
+
+  .wide { grid-column: span 2; }
+
+  #stats {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+    font-family: Consolas, monospace;
+    font-size: 11px;
+  }
+
+  #help {
+    position: fixed;
+    bottom: 12px;
+    right: 14px;
+    max-width: 310px;
+    color: rgba(255,255,255,.9);
+    font-size: 12px;
+    text-shadow: 0 1px 2px rgba(0,0,0,.8);
+    text-align: right;
+    pointer-events: none;
+    transition: opacity .8s ease;
+  }
+
+  #help.hidden {
+    opacity: 0;
+  }
+
+  #pauseBadge {
+    display: none;
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #111;
+    color: white;
+    padding: 7px 13px;
+    font-family: Consolas, monospace;
+    font-size: 13px;
+    letter-spacing: 1px;
+  }
+
+
+  .spawn-browser {
+    margin-top: 8px;
+    border: 1px solid #111;
+    background: #fff;
+  }
+
+  .spawn-browser input {
+    width: 100%;
+    border: 0;
+    border-bottom: 1px solid #111;
+    padding: 7px 8px;
+    font: inherit;
+    font-size: 12px;
+    outline: none;
+    background: #fff;
+    color: #000;
+  }
+
+  .spawn-option:last-child {
+    border-bottom: 0;
+  }
+
+
+  #spawnPanel {
+    position: fixed;
+    top: 14px;
+    left: calc(100vw - 334px);
+    right: auto;
+    width: 320px;
+    height: 560px;
+    min-width: 240px;
+    min-height: 300px;
+    max-width: calc(100vw - 28px);
+    max-height: calc(100vh - 28px);
+    display: none;
+    flex-direction: column;
+    background: #fff;
+    border: 1px solid #000;
+    resize: both;
+    bottom: auto;
+    overflow: hidden;
+    z-index: 20;
+  }
+
+  #spawnPanel.visible {
+    display: flex;
+  }
+
+  #spawnPanelHeader {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 8px;
+    background: #000;
+    color: #fff;
+    cursor: move;
+    font-family: Consolas, monospace;
+    font-size: 12px;
+    user-select: none;
+  }
+
+  #spawnPanelHeader span:last-child {
+    opacity: .65;
+    font-size: 10px;
+  }
+
+  #spawnPanelBody {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #spawnSearch {
+    flex: 0 0 auto;
+    width: calc(100% - 16px);
+    margin: 8px;
+    border: 1px solid #000;
+    padding: 7px 8px;
+    font: inherit;
+    font-size: 12px;
+    outline: none;
+    background: #fff;
+    color: #000;
+  }
+
+
+  #categoryFilters {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 5px;
+    padding: 0 8px 8px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .category-filter {
+    flex: 0 0 auto;
+    padding: 4px 7px;
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: .35px;
+  }
+
+  .category-filter.active {
+    background: #000;
+    color: #fff;
+  }
+
+  #spawnSettings {
+    flex: 0 0 auto;
+    padding: 0 8px 8px;
+    border-bottom: 1px solid #000;
+  }
+
+  #spawnSettings label {
+    margin-top: 0;
+  }
+
+  #spawnSettings input[type="range"] {
+    display: block;
+    width: 100%;
+  }
+
+  .spawn-size-note {
+    margin-top: 2px;
+    font-family: Consolas, monospace;
+    font-size: 9px;
+    opacity: .55;
+  }
+
+  #spawnOptions {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+    align-content: start;
+    gap: 6px;
+    padding: 8px;
+    overflow-y: auto;
+  }
+
+  .spawn-option {
+    min-height: 122px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 5px;
+    border: 1px solid #000;
+    padding: 5px;
+    background: #fff;
+    color: #000;
+    text-align: left;
+    font-size: 11px;
+  }
+
+  .spawn-option:hover {
+    background: #eee;
+  }
+
+  .spawn-option.selected {
+    background: #000;
+    color: #fff;
+  }
+
+  .spawn-option:active {
+    transform: none;
+  }
+
+  .spawn-preview {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    height: auto;
+    display: block;
+    background: #f7f7f7;
+    border: 1px solid currentColor;
+  }
+
+  .spawn-option-name {
+    display: block;
+    min-height: 2.5em;
+    line-height: 1.25;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    color: inherit;
+    font-weight: 600;
+  }
+
+  .spawn-option small {
+    opacity: .6;
+    font-size: 8px;
+    text-transform: uppercase;
+    letter-spacing: .35px;
+  }
+
+  #selectedSpawn {
+    flex: 0 0 auto;
+    padding: 7px 9px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    border-top: 1px solid #000;
+    background: #fff;
+    font-family: Consolas, monospace;
+    font-size: 10px;
+  }
+
+  @media (max-width: 600px) {
+    #toolbar { width: 205px; transform: scale(.9); transform-origin: top left; }
+    #help { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="world"></canvas>
+
+
+<section id="toolbar">
+  <h1>Rishaan's Slicing Test</h1>
+  <div class="subtitle">little physics sandbox</div>
+
+  <div class="mode-grid">
+    <button data-mode="slice" class="active">Slice</button>
+    <button data-mode="drag">Grab</button>
+    <button data-mode="spawn">Spawn</button>
+    <button data-mode="delete">Delete</button>
+  </div>
+
+  <div class="actions">
+    <button id="spawnTen">drop 10</button>
+    <button id="reset">reset</button>
+    <button id="pause">pause</button>
+    <button id="slow">slow motion</button>
+  </div>
+</section>
+
+
+
+
+<section id="spawnPanel">
+  <div id="spawnPanelHeader">
+    <span>SPAWNABLES</span>
+    <span>drag</span>
+  </div>
+
+  <div id="spawnPanelBody">
+    <input id="spawnSearch" type="text" placeholder="search...">
+
+    <div id="categoryFilters" aria-label="Spawnable categories"></div>
+
+    <div id="spawnSettings">
+      <label><span>spawn size</span><span id="sizeValue">Random</span></label>
+      <input id="sizeSlider" type="range" min="0" max="120" value="0">
+      <div class="spawn-size-note">0 = random size</div>
+    </div>
+
+    <div id="spawnOptions"></div>
+  </div>
+
+  <div id="selectedSpawn">selected: random shape</div>
+</section>
+
+
+<div id="pauseBadge">PAUSED</div>
+<div id="help">
+  drag across shapes to slice · grab and throw pieces · right-click to spawn · space pauses · R resets
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("world");
+  const ctx = canvas.getContext("2d");
+
+  const ui = {
+    spawnPanel: document.getElementById("spawnPanel"),
+    spawnPanelHeader: document.getElementById("spawnPanelHeader"),
+    spawnSearch: document.getElementById("spawnSearch"),
+    categoryFilters: document.getElementById("categoryFilters"),
+    spawnOptions: document.getElementById("spawnOptions"),
+    selectedSpawn: document.getElementById("selectedSpawn"),
+    sizeSlider: document.getElementById("sizeSlider"),
+    sizeValue: document.getElementById("sizeValue"),
+    gravity: document.getElementById("gravity"),
+    bounce: document.getElementById("bounce"),
+    airDrag: document.getElementById("airDrag"),
+    gravityValue: document.getElementById("gravityValue"),
+    bounceValue: document.getElementById("bounceValue"),
+    dragValue: document.getElementById("dragValue"),
+    
+    pause: document.getElementById("pause"),
+    slow: document.getElementById("slow"),
+    pauseBadge: document.getElementById("pauseBadge")
+  };
+
+  let width = 0;
+  let height = 0;
+  let pixelRatio = 1;
+  let bodies = [];
+  let mode = "slice";
+  let selectedSpawnType = "random";
+  let selectedSpawnCategory = "all";
+  let paused = false;
+  let slowMotion = false;
+  let cuts = 0;
+  let idCounter = 1;
+  let sliceStart = null;
+  let heldBody = null;
+  let heldLocalPoint = null;
+  let mouseTrail = [];
+  let wind = 0;
+  let flash = 0;
+
+  const pointer = { x: 0, y: 0, down: false };
+
+  const palette = [
+    "#c75c4a", "#d99a3d", "#d6bd55", "#5c9b77",
+    "#4f83a3", "#7868a6", "#9e5f77", "#81745c"
+  ];
+
+  const add = (a,b) => ({ x: a.x+b.x, y: a.y+b.y });
+  const sub = (a,b) => ({ x: a.x-b.x, y: a.y-b.y });
+  const mul = (a,s) => ({ x: a.x*s, y: a.y*s });
+  const dot = (a,b) => a.x*b.x + a.y*b.y;
+  const cross = (a,b) => a.x*b.y - a.y*b.x;
+  const length = a => Math.hypot(a.x,a.y);
+  const normalize = a => {
+    const l = length(a);
+    return l > 1e-8 ? { x:a.x/l, y:a.y/l } : { x:0, y:0 };
+  };
+  const perpendicular = a => ({ x:-a.y, y:a.x });
+  const rotate = (p,a) => ({
+    x: p.x*Math.cos(a)-p.y*Math.sin(a),
+    y: p.x*Math.sin(a)+p.y*Math.cos(a)
+  });
+  const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+
+  function resize() {
+    pixelRatio = Math.min(devicePixelRatio || 1, 2);
+    width = innerWidth;
+    height = innerHeight;
+    canvas.width = width * pixelRatio;
+    canvas.height = height * pixelRatio;
+    canvas.style.width = width + "px";
+    canvas.style.height = height + "px";
+    ctx.setTransform(pixelRatio,0,0,pixelRatio,0,0);
+  }
+
+  function polygonArea(vertices) {
+    let sum = 0;
+    for (let i=0;i<vertices.length;i++) {
+      sum += cross(vertices[i], vertices[(i+1)%vertices.length]);
+    }
+    return sum * .5;
+  }
+
+  function centroid(vertices) {
+    let areaSum = 0;
+    let x = 0;
+    let y = 0;
+
+    for (let i=0;i<vertices.length;i++) {
+      const a = vertices[i];
+      const b = vertices[(i+1)%vertices.length];
+      const c = cross(a,b);
+      areaSum += c;
+      x += (a.x+b.x)*c;
+      y += (a.y+b.y)*c;
+    }
+
+    if (Math.abs(areaSum) < 1e-7) {
+      const average = vertices.reduce((s,p)=>add(s,p), {x:0,y:0});
+      return mul(average,1/vertices.length);
+    }
+
+    return { x:x/(3*areaSum), y:y/(3*areaSum) };
+  }
+
+  function makeCCW(vertices) {
+    return polygonArea(vertices) < 0 ? [...vertices].reverse() : vertices;
+  }
+
+  function pointInTriangle(p,a,b,c) {
+    const ab = cross(sub(b,a),sub(p,a));
+    const bc = cross(sub(c,b),sub(p,b));
+    const ca = cross(sub(a,c),sub(p,c));
+    const hasNegative = ab < -1e-7 || bc < -1e-7 || ca < -1e-7;
+    const hasPositive = ab > 1e-7 || bc > 1e-7 || ca > 1e-7;
+    return !(hasNegative && hasPositive);
+  }
+
+  function triangulate(vertices) {
+    const polygon = makeCCW(vertices.map(p=>({...p})));
+    if (polygon.length === 3) return [polygon];
+
+    const indices = polygon.map((_,i)=>i);
+    const triangles = [];
+    let guard = 0;
+
+    while (indices.length > 3 && guard++ < 500) {
+      let clipped = false;
+
+      for (let i=0;i<indices.length;i++) {
+        const previousIndex = indices[(i-1+indices.length)%indices.length];
+        const currentIndex = indices[i];
+        const nextIndex = indices[(i+1)%indices.length];
+
+        const a = polygon[previousIndex];
+        const b = polygon[currentIndex];
+        const c = polygon[nextIndex];
+
+        if (cross(sub(b,a),sub(c,b)) <= 1e-7) continue;
+
+        let containsPoint = false;
+        for (const testIndex of indices) {
+          if (testIndex===previousIndex || testIndex===currentIndex || testIndex===nextIndex) continue;
+          if (pointInTriangle(polygon[testIndex],a,b,c)) {
+            containsPoint = true;
+            break;
+          }
+        }
+
+        if (!containsPoint) {
+          triangles.push([a,b,c]);
+          indices.splice(i,1);
+          clipped = true;
+          break;
+        }
+      }
+
+      if (!clipped) break;
+    }
+
+    if (indices.length === 3) {
+      triangles.push(indices.map(index=>polygon[index]));
+    }
+
+    return triangles.length ? triangles : [polygon];
+  }
+
+  function bodyFromWorldVertices(vertices, options={}) {
+    const world = makeCCW(vertices);
+    const center = centroid(world);
+    const local = world.map(p=>sub(p,center));
+    const area = Math.max(90,Math.abs(polygonArea(world)));
+    const mass = area / 2300;
+    const radius = Math.max(...local.map(length));
+    const parts = triangulate(local);
+
+    let sumRadiusSquared = 0;
+    for (const point of local) sumRadiusSquared += dot(point,point);
+    const inertia = Math.max(.05,mass*sumRadiusSquared/local.length);
+
+    return {
+      id: idCounter++,
+      pos: center,
+      vel: options.vel ? {...options.vel} : {x:0,y:0},
+      angle: options.angle || 0,
+      angVel: options.angVel || 0,
+      verts: local,
+      parts,
+      color: options.color || palette[Math.floor(Math.random()*palette.length)],
+      mass,
+      invMass: 1/mass,
+      inertia,
+      invInertia: 1/inertia,
+      radius,
+      sleepTimer: 0,
+      sleeping: false
+    };
+  }
+
+  function getWorldVertices(body) {
+    return body.verts.map(p=>add(body.pos,rotate(p,body.angle)));
+  }
+
+  function getWorldParts(body) {
+    return body.parts.map(part =>
+      part.map(point=>add(body.pos,rotate(point,body.angle)))
+    );
+  }
+
+  function regularPolygon(x,y,r,sides,angle=Math.random()*Math.PI) {
+    const points = [];
+    for (let i=0;i<sides;i++) {
+      const a = angle + i*Math.PI*2/sides;
+      points.push({x:x+Math.cos(a)*r,y:y+Math.sin(a)*r});
+    }
+    return points;
+  }
+
+  function spawn(x=width*.65,y=40,type=selectedSpawnType) {
+    if (type === "random") {
+      const choices = [
+        "box","triangle","pentagon","hexagon","octagon","circle",
+        "human","amongus","creeper","roblox","star","heart",
+        "sword","rocket","duck","ghost","crown","lightning",
+        "fish","key","anvil","bone","moon","ufo","axe","hammer",
+        "skull","mushroom","cat","bat","shield","hourglass","controller",
+        "pizza","gem","boot","trophy","flask","anchor","robot","alien",
+        "snowman","tree","flower","cactus","submarine","plane","tank",
+        "magnet","camera","phone","musicnote","cloud","sun","planet",
+        "donut","cup","diamond","arrow","cross","house","tungtung","tralalero","bombardino","capybara","banana","amogusface","doge","cheems","shrekhead","toilet"
+      ];
+      type = choices[Math.floor(Math.random()*choices.length)];
+    }
+
+    let r;
+    if (Number(ui.sizeSlider.value) === 0) {
+      r = 27 + Math.random()*27;
+    } else {
+      r = Number(ui.sizeSlider.value);
+    }
+    let vertices;
+
+    if (type === "circle") {
+      const sides=28;
+      vertices=regularPolygon(x,y,r,sides);
+    } else if (type === "human") {
+      vertices=[
+        {x:x-10,y:y-48},{x:x+10,y:y-48},
+        {x:x+16,y:y-36},{x:x+16,y:y-20},
+        {x:x+52,y:y-20},{x:x+52,y:y-5},
+        {x:x+16,y:y-5},{x:x+16,y:y+38},
+        {x:x+27,y:y+75},{x:x+8,y:y+75},
+        {x:x,y:y+42},{x:x-8,y:y+75},
+        {x:x-27,y:y+75},{x:x-16,y:y+38},
+        {x:x-16,y:y-5},{x:x-52,y:y-5},
+        {x:x-52,y:y-20},{x:x-16,y:y-20},
+        {x:x-16,y:y-36}
+      ];
+    } else if (type === "amongus") {
+      // Rounded crewmate silhouette: backpack, domed head and separated legs.
+      vertices=[
+        {x:x-r*.52,y:y-r*.94},{x:x-r*.12,y:y-r},
+        {x:x+r*.28,y:y-r*.88},{x:x+r*.5,y:y-r*.58},
+        {x:x+r*.62,y:y-r*.18},{x:x+r*.62,y:y+r*.3},
+        {x:x+r*.5,y:y+r*.56},{x:x+r*.46,y:y+r*.94},
+        {x:x+r*.08,y:y+r*.94},{x:x+r*.02,y:y+r*.48},
+        {x:x-r*.18,y:y+r*.48},{x:x-r*.22,y:y+r*.94},
+        {x:x-r*.62,y:y+r*.94},{x:x-r*.64,y:y+r*.52},
+        {x:x-r*.82,y:y+r*.4},{x:x-r*.86,y:y-r*.2},
+        {x:x-r*.72,y:y-r*.46}
+      ];
+    } else if (type === "creeper") {
+      // Minecraft Creeper: square head, thin body, four blocky feet.
+      vertices=[
+        {x:x-r*.48,y:y-r},{x:x+r*.48,y:y-r},
+        {x:x+r*.48,y:y-r*.18},{x:x+r*.3,y:y-r*.18},
+        {x:x+r*.3,y:y+r*.38},{x:x+r*.62,y:y+r*.38},
+        {x:x+r*.62,y:y+r},{x:x+r*.12,y:y+r},
+        {x:x+r*.12,y:y+r*.7},{x:x-r*.12,y:y+r*.7},
+        {x:x-r*.12,y:y+r},{x:x-r*.62,y:y+r},
+        {x:x-r*.62,y:y+r*.38},{x:x-r*.3,y:y+r*.38},
+        {x:x-r*.3,y:y-r*.18},{x:x-r*.48,y:y-r*.18}
+      ];
+    } else if (type === "roblox") {
+      // Classic blocky Roblox noob proportions.
+      vertices=[
+        {x:x-r*.28,y:y-r},{x:x+r*.28,y:y-r},
+        {x:x+r*.28,y:y-r*.58},{x:x+r*.52,y:y-r*.58},
+        {x:x+r*.52,y:y+r*.2},{x:x+r*.28,y:y+r*.2},
+        {x:x+r*.28,y:y+r},{x:x+r*.04,y:y+r},
+        {x:x+r*.02,y:y+r*.28},{x:x-r*.02,y:y+r*.28},
+        {x:x-r*.04,y:y+r},{x:x-r*.28,y:y+r},
+        {x:x-r*.28,y:y+r*.2},{x:x-r*.52,y:y+r*.2},
+        {x:x-r*.52,y:y-r*.58},{x:x-r*.28,y:y-r*.58}
+      ];
+    } else if (type === "star") {
+      vertices=[];
+      for (let i=0;i<10;i++) {
+        const a=-Math.PI/2+i*Math.PI/5;
+        const rr=i%2===0?r:r*.44;
+        vertices.push({x:x+Math.cos(a)*rr,y:y+Math.sin(a)*rr});
+      }
+    } else if (type === "heart") {
+      vertices=[
+        {x:x,y:y+r*.9},{x:x-r*.78,y:y+r*.15},
+        {x:x-r*.9,y:y-r*.22},{x:x-r*.62,y:y-r*.62},
+        {x:x-r*.22,y:y-r*.64},{x:x,y:y-r*.36},
+        {x:x+r*.22,y:y-r*.64},{x:x+r*.62,y:y-r*.62},
+        {x:x+r*.9,y:y-r*.22},{x:x+r*.78,y:y+r*.15}
+      ];
+    } else if (type === "sword") {
+      vertices=[
+        {x:x-7,y:y-r},{x:x+7,y:y-r},
+        {x:x+10,y:y+r*.28},{x:x+30,y:y+r*.28},
+        {x:x+30,y:y+r*.43},{x:x+10,y:y+r*.43},
+        {x:x+10,y:y+r*.82},{x:x-10,y:y+r*.82},
+        {x:x-10,y:y+r*.43},{x:x-30,y:y+r*.43},
+        {x:x-30,y:y+r*.28},{x:x-10,y:y+r*.28}
+      ];
+    } else if (type === "rocket") {
+      vertices=[
+        {x:x,y:y-r},{x:x+r*.42,y:y-r*.35},
+        {x:x+r*.42,y:y+r*.35},{x:x+r*.72,y:y+r*.72},
+        {x:x+r*.2,y:y+r*.58},{x:x,y:y+r},
+        {x:x-r*.2,y:y+r*.58},{x:x-r*.72,y:y+r*.72},
+        {x:x-r*.42,y:y+r*.35},{x:x-r*.42,y:y-r*.35}
+      ];
+    } else if (type === "duck") {
+      vertices=[
+        {x:x-r*.75,y:y+r*.2},{x:x-r*.65,y:y-r*.2},
+        {x:x-r*.3,y:y-r*.42},{x:x+r*.1,y:y-r*.35},
+        {x:x+r*.25,y:y-r*.68},{x:x+r*.5,y:y-r*.62},
+        {x:x+r*.62,y:y-r*.4},{x:x+r*.95,y:y-r*.3},
+        {x:x+r*.65,y:y-r*.08},{x:x+r*.55,y:y+r*.3},
+        {x:x+r*.2,y:y+r*.5},{x:x-r*.3,y:y+r*.48}
+      ];
+    } else if (type === "ghost") {
+      vertices=[
+        {x:x-r*.65,y:y+r*.65},{x:x-r*.65,y:y-r*.15},
+        {x:x-r*.5,y:y-r*.55},{x:x-r*.15,y:y-r*.8},
+        {x:x+r*.2,y:y-r*.78},{x:x+r*.55,y:y-r*.5},
+        {x:x+r*.68,y:y-r*.1},{x:x+r*.68,y:y+r*.65},
+        {x:x+r*.4,y:y+r*.4},{x:x+r*.12,y:y+r*.68},
+        {x:x-r*.12,y:y+r*.4},{x:x-r*.4,y:y+r*.68}
+      ];
+    } else if (type === "crown") {
+      vertices=[
+        {x:x-r,y:y+r*.55},{x:x-r*.8,y:y-r*.45},
+        {x:x-r*.32,y:y+r*.02},{x:x,y:y-r*.75},
+        {x:x+r*.32,y:y+r*.02},{x:x+r*.8,y:y-r*.45},
+        {x:x+r,y:y+r*.55}
+      ];
+    } else if (type === "lightning") {
+      vertices=[
+        {x:x+r*.12,y:y-r},{x:x-r*.48,y:y-r*.05},
+        {x:x-r*.08,y:y-r*.05},{x:x-r*.3,y:y+r},
+        {x:x+r*.58,y:y-r*.18},{x:x+r*.15,y:y-r*.18}
+      ];
+    } else if (type === "fish") {
+      vertices=[
+        {x:x-r,y:y},{x:x-r*.55,y:y-r*.45},
+        {x:x+r*.2,y:y-r*.5},{x:x+r*.72,y:y-r*.15},
+        {x:x+r,y:y-r*.5},{x:x+r*.92,y:y},
+        {x:x+r,y:y+r*.5},{x:x+r*.72,y:y+r*.15},
+        {x:x+r*.2,y:y+r*.5},{x:x-r*.55,y:y+r*.45}
+      ];
+    } else if (type === "key") {
+      vertices=[
+        {x:x-r,y:y-r*.32},{x:x-r*.45,y:y-r*.32},
+        {x:x-r*.45,y:y-r*.52},{x:x-r*.12,y:y-r*.52},
+        {x:x-r*.12,y:y-r*.32},{x:x+r*.28,y:y-r*.32},
+        {x:x+r*.42,y:y-r*.62},{x:x+r*.75,y:y-r*.62},
+        {x:x+r,y:y-r*.32},{x:x+r,y:y+r*.32},
+        {x:x+r*.75,y:y+r*.62},{x:x+r*.42,y:y+r*.62},
+        {x:x+r*.28,y:y+r*.32},{x:x-r,y:y+r*.32}
+      ];
+    } else if (type === "anvil") {
+      vertices=[
+        {x:x-r,y:y-r*.35},{x:x+r*.75,y:y-r*.35},
+        {x:x+r,y:y-r*.12},{x:x+r*.35,y:y+r*.1},
+        {x:x+r*.18,y:y+r*.48},{x:x+r*.55,y:y+r*.7},
+        {x:x-r*.55,y:y+r*.7},{x:x-r*.18,y:y+r*.48},
+        {x:x-r*.35,y:y+r*.1}
+      ];
+    } else if (type === "bone") {
+      vertices=[
+        {x:x-r,y:y-r*.28},{x:x-r*.72,y:y-r*.55},
+        {x:x-r*.42,y:y-r*.35},{x:x+r*.42,y:y-r*.35},
+        {x:x+r*.72,y:y-r*.55},{x:x+r,y:y-r*.28},
+        {x:x+r*.72,y:y},{x:x+r,y:y+r*.28},
+        {x:x+r*.72,y:y+r*.55},{x:x+r*.42,y:y+r*.35},
+        {x:x-r*.42,y:y+r*.35},{x:x-r*.72,y:y+r*.55},
+        {x:x-r,y:y+r*.28},{x:x-r*.72,y:y}
+      ];
+    } else if (type === "moon") {
+      vertices=[
+        {x:x-r*.2,y:y-r},{x:x+r*.28,y:y-r*.78},
+        {x:x+r*.48,y:y-r*.42},{x:x+r*.35,y:y-r*.08},
+        {x:x+r*.08,y:y+r*.15},{x:x+r*.4,y:y+r*.25},
+        {x:x+r*.48,y:y+r*.58},{x:x+r*.18,y:y+r*.9},
+        {x:x-r*.3,y:y+r},{x:x-r*.75,y:y+r*.62},
+        {x:x-r,y:y},{x:x-r*.72,y:y-r*.62}
+      ];
+    } else if (type === "ufo") {
+      vertices=[
+        {x:x-r,y:y+r*.2},{x:x-r*.68,y:y-r*.05},
+        {x:x-r*.38,y:y-r*.12},{x:x-r*.22,y:y-r*.55},
+        {x:x+r*.22,y:y-r*.55},{x:x+r*.38,y:y-r*.12},
+        {x:x+r*.68,y:y-r*.05},{x:x+r,y:y+r*.2},
+        {x:x+r*.55,y:y+r*.45},{x:x-r*.55,y:y+r*.45}
+      ];
+    } else if (type === "axe") {
+      vertices=[
+        {x:x-r*.12,y:y-r},{x:x+r*.12,y:y-r},
+        {x:x+r*.1,y:y-r*.3},{x:x+r*.65,y:y-r*.55},
+        {x:x+r,y:y-r*.2},{x:x+r*.72,y:y+r*.18},
+        {x:x+r*.1,y:y},{x:x+r*.12,y:y+r},
+        {x:x-r*.12,y:y+r},{x:x-r*.1,y:y}
+      ];
+    } else if (type === "hammer") {
+      vertices=[
+        {x:x-r*.12,y:y-r},{x:x+r*.62,y:y-r},
+        {x:x+r*.62,y:y-r*.52},{x:x+r*.15,y:y-r*.52},
+        {x:x+r*.12,y:y+r},{x:x-r*.12,y:y+r},
+        {x:x-r*.15,y:y-r*.52},{x:x-r*.72,y:y-r*.52},
+        {x:x-r*.72,y:y-r}
+      ];
+    } else if (type === "skull") {
+      vertices=[
+        {x:x-r*.58,y:y-r*.72},{x:x,y:y-r},
+        {x:x+r*.58,y:y-r*.72},{x:x+r*.82,y:y-r*.15},
+        {x:x+r*.65,y:y+r*.35},{x:x+r*.35,y:y+r*.48},
+        {x:x+r*.28,y:y+r},{x:x+.05*r,y:y+r*.72},
+        {x:x-r*.18,y:y+r},{x:x-r*.35,y:y+r*.48},
+        {x:x-r*.65,y:y+r*.35},{x:x-r*.82,y:y-r*.15}
+      ];
+    } else if (type === "mushroom") {
+      vertices=[
+        {x:x-r,y:y-r*.15},{x:x-r*.72,y:y-r*.65},
+        {x:x-r*.25,y:y-r},{x:x+r*.25,y:y-r},
+        {x:x+r*.72,y:y-r*.65},{x:x+r,y:y-r*.15},
+        {x:x+r*.45,y:y},{x:x+r*.2,y:y+r},
+        {x:x-r*.2,y:y+r},{x:x-r*.45,y:y}
+      ];
+    } else if (type === "cat") {
+      vertices=[
+        {x:x-r*.72,y:y-r*.85},{x:x-r*.28,y:y-r*.58},
+        {x:x+r*.28,y:y-r*.58},{x:x+r*.72,y:y-r*.85},
+        {x:x+r*.58,y:y-r*.28},{x:x+r*.7,y:y+r*.32},
+        {x:x+r*.25,y:y+r*.82},{x:x-r*.25,y:y+r*.82},
+        {x:x-r*.7,y:y+r*.32},{x:x-r*.58,y:y-r*.28}
+      ];
+    } else if (type === "bat") {
+      vertices=[
+        {x:x-r,y:y-r*.15},{x:x-r*.68,y:y-r*.55},
+        {x:x-r*.38,y:y-r*.25},{x:x-r*.12,y:y-r*.62},
+        {x:x,y:y-r*.25},{x:x+r*.12,y:y-r*.62},
+        {x:x+r*.38,y:y-r*.25},{x:x+r*.68,y:y-r*.55},
+        {x:x+r,y:y-r*.15},{x:x+r*.58,y:y+r*.62},
+        {x:x,y:y+r*.25},{x:x-r*.58,y:y+r*.62}
+      ];
+    } else if (type === "shield") {
+      vertices=[
+        {x:x-r*.75,y:y-r*.8},{x:x+r*.75,y:y-r*.8},
+        {x:x+r*.65,y:y+r*.1},{x:x+r*.28,y:y+r*.62},
+        {x:x,y:y+r},{x:x-r*.28,y:y+r*.62},
+        {x:x-r*.65,y:y+r*.1}
+      ];
+    } else if (type === "hourglass") {
+      vertices=[
+        {x:x-r*.6,y:y-r},{x:x+r*.6,y:y-r},
+        {x:x+r*.42,y:y-r*.72},{x:x+r*.12,y:y},
+        {x:x+r*.42,y:y+r*.72},{x:x+r*.6,y:y+r},
+        {x:x-r*.6,y:y+r},{x:x-r*.42,y:y+r*.72},
+        {x:x-r*.12,y:y},{x:x-r*.42,y:y-r*.72}
+      ];
+    } else if (type === "controller") {
+      vertices=[
+        {x:x-r,y:y-r*.15},{x:x-r*.72,y:y-r*.58},
+        {x:x-r*.22,y:y-r*.42},{x:x+r*.22,y:y-r*.42},
+        {x:x+r*.72,y:y-r*.58},{x:x+r,y:y-r*.15},
+        {x:x+r*.72,y:y+r*.58},{x:x+r*.25,y:y+r*.28},
+        {x:x-r*.25,y:y+r*.28},{x:x-r*.72,y:y+r*.58}
+      ];
+    } else if (type === "pizza") {
+      vertices=[
+        {x:x,y:y+r},{x:x-r*.72,y:y-r*.72},
+        {x:x-r*.4,y:y-r},{x:x+r*.4,y:y-r},
+        {x:x+r*.72,y:y-r*.72}
+      ];
+    } else if (type === "gem") {
+      vertices=[
+        {x:x-r*.72,y:y-r*.45},{x:x-r*.35,y:y-r},
+        {x:x+r*.35,y:y-r},{x:x+r*.72,y:y-r*.45},
+        {x:x+r*.45,y:y+r*.1},{x:x,y:y+r},
+        {x:x-r*.45,y:y+r*.1}
+      ];
+    } else if (type === "boot") {
+      vertices=[
+        {x:x-r*.42,y:y-r},{x:x+r*.12,y:y-r},
+        {x:x+r*.12,y:y+r*.32},{x:x+r,y:y+r*.32},
+        {x:x+r,y:y+r*.72},{x:x-r*.42,y:y+r*.72}
+      ];
+    } else if (type === "trophy") {
+      vertices=[
+        {x:x-r*.55,y:y-r},{x:x+r*.55,y:y-r},
+        {x:x+r*.48,y:y-r*.35},{x:x+r*.22,y:y},
+        {x:x+r*.12,y:y+r*.4},{x:x+r*.48,y:y+r*.55},
+        {x:x+r*.48,y:y+r*.82},{x:x-r*.48,y:y+r*.82},
+        {x:x-r*.48,y:y+r*.55},{x:x-r*.12,y:y+r*.4},
+        {x:x-r*.22,y:y},{x:x-r*.48,y:y-r*.35}
+      ];
+    } else if (type === "flask") {
+      vertices=[
+        {x:x-r*.2,y:y-r},{x:x+r*.2,y:y-r},
+        {x:x+r*.2,y:y-r*.35},{x:x+r*.72,y:y+r*.62},
+        {x:x+r*.45,y:y+r},{x:x-r*.45,y:y+r},
+        {x:x-r*.72,y:y+r*.62},{x:x-r*.2,y:y-r*.35}
+      ];
+    } else if (type === "anchor") {
+      vertices=[
+        {x:x-r*.14,y:y-r},{x:x+r*.14,y:y-r},
+        {x:x+r*.14,y:y-r*.42},{x:x+r*.44,y:y-r*.42},
+        {x:x+r*.44,y:y-r*.18},{x:x+r*.14,y:y-r*.18},
+        {x:x+r*.14,y:y+r*.48},{x:x+r*.55,y:y+r*.28},
+        {x:x+r*.82,y:y-r*.02},{x:x+r,y:y+r*.52},
+        {x:x+r*.62,y:y+r*.9},{x:x+r*.1,y:y+r*.7},
+        {x:x,y:y+r},{x:x-r*.1,y:y+r*.7},
+        {x:x-r*.62,y:y+r*.9},{x:x-r,y:y+r*.52},
+        {x:x-r*.82,y:y-r*.02},{x:x-r*.55,y:y+r*.28},
+        {x:x-r*.14,y:y+r*.48},{x:x-r*.14,y:y-r*.18},
+        {x:x-r*.44,y:y-r*.18},{x:x-r*.44,y:y-r*.42},
+        {x:x-r*.14,y:y-r*.42}
+      ];
+    } else if (type === "robot") {
+      vertices=[
+        {x:x-r*.5,y:y-r},{x:x+r*.5,y:y-r},
+        {x:x+r*.62,y:y-r*.78},{x:x+r*.62,y:y-r*.35},
+        {x:x+r*.86,y:y-r*.35},{x:x+r*.86,y:y+r*.28},
+        {x:x+r*.58,y:y+r*.28},{x:x+r*.5,y:y+r},
+        {x:x+r*.12,y:y+r},{x:x+r*.08,y:y+r*.5},
+        {x:x-r*.08,y:y+r*.5},{x:x-r*.12,y:y+r},
+        {x:x-r*.5,y:y+r},{x:x-r*.58,y:y+r*.28},
+        {x:x-r*.86,y:y+r*.28},{x:x-r*.86,y:y-r*.35},
+        {x:x-r*.62,y:y-r*.35},{x:x-r*.62,y:y-r*.78}
+      ];
+    } else if (type === "alien") {
+      vertices=[
+        {x:x,y:y-r},{x:x+r*.45,y:y-r*.82},
+        {x:x+r*.72,y:y-r*.45},{x:x+r*.82,y:y},
+        {x:x+r*.65,y:y+r*.48},{x:x+r*.3,y:y+r*.82},
+        {x:x,y:y+r},{x:x-r*.3,y:y+r*.82},
+        {x:x-r*.65,y:y+r*.48},{x:x-r*.82,y:y},
+        {x:x-r*.72,y:y-r*.45},{x:x-r*.45,y:y-r*.82}
+      ];
+    } else if (type === "snowman") {
+      vertices=[
+        {x:x-r*.3,y:y-r},{x:x+r*.3,y:y-r},
+        {x:x+r*.52,y:y-r*.78},{x:x+r*.58,y:y-r*.48},
+        {x:x+r*.45,y:y-r*.2},{x:x+r*.72,y:y+r*.12},
+        {x:x+r*.76,y:y+r*.55},{x:x+r*.5,y:y+r*.88},
+        {x:x,y:y+r},{x:x-r*.5,y:y+r*.88},
+        {x:x-r*.76,y:y+r*.55},{x:x-r*.72,y:y+r*.12},
+        {x:x-r*.45,y:y-r*.2},{x:x-r*.58,y:y-r*.48},
+        {x:x-r*.52,y:y-r*.78}
+      ];
+    } else if (type === "tree") {
+      vertices=[
+        {x:x,y:y-r},{x:x+r*.48,y:y-r*.32},
+        {x:x+r*.25,y:y-r*.32},{x:x+r*.65,y:y+r*.18},
+        {x:x+r*.25,y:y+r*.18},{x:x+r*.25,y:y+r},
+        {x:x-r*.25,y:y+r},{x:x-r*.25,y:y+r*.18},
+        {x:x-r*.65,y:y+r*.18},{x:x-r*.25,y:y-r*.32},
+        {x:x-r*.48,y:y-r*.32}
+      ];
+    } else if (type === "flower") {
+      vertices=[];
+      for (let i=0;i<16;i++) {
+        const a=-Math.PI/2+i*Math.PI/8;
+        const rr=i%2===0?r:r*.48;
+        vertices.push({x:x+Math.cos(a)*rr,y:y+Math.sin(a)*rr});
+      }
+    } else if (type === "cactus") {
+      vertices=[
+        {x:x-r*.2,y:y-r},{x:x+r*.2,y:y-r},
+        {x:x+r*.2,y:y-r*.18},{x:x+r*.42,y:y-r*.18},
+        {x:x+r*.42,y:y-r*.5},{x:x+r*.68,y:y-r*.5},
+        {x:x+r*.68,y:y+r*.1},{x:x+r*.5,y:y+r*.28},
+        {x:x+r*.2,y:y+r*.28},{x:x+r*.2,y:y+r},
+        {x:x-r*.2,y:y+r},{x:x-r*.2,y:y+r*.18},
+        {x:x-r*.52,y:y+r*.18},{x:x-r*.7,y:y},
+        {x:x-r*.7,y:y-r*.42},{x:x-r*.44,y:y-r*.42},
+        {x:x-r*.44,y:y-r*.1},{x:x-r*.2,y:y-r*.1}
+      ];
+    } else if (type === "submarine") {
+      vertices=[
+        {x:x-r,y:y},{x:x-r*.78,y:y-r*.34},
+        {x:x-r*.28,y:y-r*.5},{x:x-r*.12,y:y-r*.82},
+        {x:x+r*.22,y:y-r*.82},{x:x+r*.3,y:y-r*.5},
+        {x:x+r*.72,y:y-r*.34},{x:x+r,y:y},
+        {x:x+r*.72,y:y+r*.34},{x:x-r*.55,y:y+r*.46}
+      ];
+    } else if (type === "plane") {
+      vertices=[
+        {x:x-r,y:y-r*.08},{x:x-r*.28,y:y-r*.22},
+        {x:x+r*.12,y:y-r},{x:x+r*.34,y:y-r},
+        {x:x+r*.2,y:y-r*.2},{x:x+r,y:y-r*.06},
+        {x:x+r,y:y+r*.06},{x:x+r*.2,y:y+r*.2},
+        {x:x+r*.34,y:y+r},{x:x+r*.12,y:y+r},
+        {x:x-r*.28,y:y+r*.22},{x:x-r,y:y+r*.08}
+      ];
+    } else if (type === "tank") {
+      vertices=[
+        {x:x-r,y:y+r*.15},{x:x-r*.72,y:y-r*.22},
+        {x:x-r*.28,y:y-r*.22},{x:x-r*.18,y:y-r*.58},
+        {x:x+r*.24,y:y-r*.58},{x:x+r*.38,y:y-r*.28},
+        {x:x+r,y:y-r*.28},{x:x+r,y:y-r*.08},
+        {x:x+r*.42,y:y-r*.08},{x:x+r*.72,y:y+r*.18},
+        {x:x+r*.55,y:y+r*.58},{x:x-r*.72,y:y+r*.58}
+      ];
+    } else if (type === "magnet") {
+      vertices=[
+        {x:x-r,y:y-r*.75},{x:x-r*.35,y:y-r*.75},
+        {x:x-r*.35,y:y+r*.15},{x:x-r*.2,y:y+r*.5},
+        {x:x+r*.2,y:y+r*.5},{x:x+r*.35,y:y+r*.15},
+        {x:x+r*.35,y:y-r*.75},{x:x+r,y:y-r*.75},
+        {x:x+r,y:y+r*.15},{x:x+r*.62,y:y+r*.75},
+        {x:x-r*.62,y:y+r*.75},{x:x-r,y:y+r*.15}
+      ];
+    } else if (type === "camera") {
+      vertices=[
+        {x:x-r,y:y-r*.45},{x:x-r*.35,y:y-r*.45},
+        {x:x-r*.18,y:y-r*.72},{x:x+r*.25,y:y-r*.72},
+        {x:x+r*.42,y:y-r*.45},{x:x+r,y:y-r*.45},
+        {x:x+r,y:y+r*.55},{x:x-r,y:y+r*.55}
+      ];
+    } else if (type === "phone") {
+      vertices=[
+        {x:x-r*.48,y:y-r},{x:x+r*.48,y:y-r},
+        {x:x+r*.6,y:y-r*.82},{x:x+r*.6,y:y+r*.82},
+        {x:x+r*.48,y:y+r},{x:x-r*.48,y:y+r},
+        {x:x-r*.6,y:y+r*.82},{x:x-r*.6,y:y-r*.82}
+      ];
+    } else if (type === "musicnote") {
+      vertices=[
+        {x:x-r*.18,y:y-r},{x:x+r*.62,y:y-r*.78},
+        {x:x+r*.62,y:y+r*.3},{x:x+r*.38,y:y+r*.3},
+        {x:x+r*.18,y:y+r*.55},{x:x-r*.12,y:y+r*.62},
+        {x:x-r*.4,y:y+r*.42},{x:x-r*.42,y:y+r*.12},
+        {x:x-r*.18,y:y-r*.02}
+      ];
+    } else if (type === "cloud") {
+      vertices=[
+        {x:x-r,y:y+r*.18},{x:x-r*.82,y:y-r*.18},
+        {x:x-r*.52,y:y-r*.38},{x:x-r*.28,y:y-r*.7},
+        {x:x+r*.08,y:y-r*.78},{x:x+r*.38,y:y-r*.52},
+        {x:x+r*.68,y:y-r*.45},{x:x+r,y:y-r*.08},
+        {x:x+r*.9,y:y+r*.3},{x:x+r*.62,y:y+r*.48},
+        {x:x-r*.68,y:y+r*.48}
+      ];
+    } else if (type === "sun") {
+      vertices=[];
+      for (let i=0;i<24;i++) {
+        const a=i*Math.PI/12;
+        const rr=i%2===0?r:r*.63;
+        vertices.push({x:x+Math.cos(a)*rr,y:y+Math.sin(a)*rr});
+      }
+    } else if (type === "planet") {
+      vertices=regularPolygon(x,y,r*.72,20,0);
+    } else if (type === "donut") {
+      vertices=regularPolygon(x,y,r,20,0);
+    } else if (type === "cup") {
+      vertices=[
+        {x:x-r*.62,y:y-r},{x:x+r*.5,y:y-r},
+        {x:x+r*.46,y:y-r*.55},{x:x+r*.72,y:y-r*.55},
+        {x:x+r,y:y-r*.25},{x:x+r,y:y+r*.22},
+        {x:x+r*.72,y:y+r*.52},{x:x+r*.42,y:y+r*.52},
+        {x:x+r*.32,y:y+r},{x:x-r*.42,y:y+r}
+      ];
+    } else if (type === "diamond") {
+      vertices=[
+        {x:x,y:y-r},{x:x+r*.72,y:y-r*.3},
+        {x:x+r*.55,y:y+r*.25},{x:x,y:y+r},
+        {x:x-r*.55,y:y+r*.25},{x:x-r*.72,y:y-r*.3}
+      ];
+    } else if (type === "arrow") {
+      vertices=[
+        {x:x-r,y:y-r*.22},{x:x+r*.25,y:y-r*.22},
+        {x:x+r*.25,y:y-r*.6},{x:x+r,y:y},
+        {x:x+r*.25,y:y+r*.6},{x:x+r*.25,y:y+r*.22},
+        {x:x-r,y:y+r*.22}
+      ];
+    } else if (type === "cross") {
+      vertices=[
+        {x:x-r*.25,y:y-r},{x:x+r*.25,y:y-r},
+        {x:x+r*.25,y:y-r*.25},{x:x+r,y:y-r*.25},
+        {x:x+r,y:y+r*.25},{x:x+r*.25,y:y+r*.25},
+        {x:x+r*.25,y:y+r},{x:x-r*.25,y:y+r},
+        {x:x-r*.25,y:y+r*.25},{x:x-r,y:y+r*.25},
+        {x:x-r,y:y-r*.25},{x:x-r*.25,y:y-r*.25}
+      ];
+    } else if (type === "house") {
+      vertices=[
+        {x:x-r,y:y-r*.08},{x:x,y:y-r},
+        {x:x+r,y:y-r*.08},{x:x+r*.72,y:y-r*.08},
+        {x:x+r*.72,y:y+r},{x:x-r*.72,y:y+r},
+        {x:x-r*.72,y:y-r*.08}
+      ];
+    
+    } else if (type==="tungtung") {
+      // Tall wooden drum/log character holding a raised bat.
+      vertices=[
+        {x:x-r*.34,y:y-r},{x:x+r*.28,y:y-r},
+        {x:x+r*.36,y:y-r*.72},{x:x+r*.34,y:y-r*.2},
+        {x:x+r*.72,y:y-r*.58},{x:x+r*.88,y:y-r*.45},
+        {x:x+r*.55,y:y-r*.02},{x:x+r*.34,y:y+r*.05},
+        {x:x+r*.34,y:y+r*.7},{x:x+r*.58,y:y+r},
+        {x:x+r*.14,y:y+r},{x:x,y:y+r*.64},
+        {x:x-r*.12,y:y+r},{x:x-r*.55,y:y+r},
+        {x:x-r*.34,y:y+r*.68},{x:x-r*.34,y:y+r*.08},
+        {x:x-r*.72,y:y+r*.35},{x:x-r*.86,y:y+r*.12},
+        {x:x-r*.42,y:y-r*.18},{x:x-r*.34,y:y-r*.55}
+      ];
+    } else if (type==="tralalero") {
+      // Shark profile with dorsal fin, tail and sneaker-like feet.
+      vertices=[
+        {x:x-r,y:y-r*.04},{x:x-r*.62,y:y-r*.35},
+        {x:x-r*.24,y:y-r*.48},{x:x-r*.05,y:y-r*.88},
+        {x:x+r*.18,y:y-r*.5},{x:x+r*.62,y:y-r*.34},
+        {x:x+r,y:y-r*.12},{x:x+r*.65,y:y+r*.08},
+        {x:x+r*.32,y:y+r*.2},{x:x+r*.46,y:y+r*.62},
+        {x:x+r*.76,y:y+r*.7},{x:x+r*.7,y:y+r*.96},
+        {x:x+r*.2,y:y+r*.92},{x:x+r*.05,y:y+r*.42},
+        {x:x-r*.2,y:y+r*.42},{x:x-r*.32,y:y+r*.82},
+        {x:x-r*.02,y:y+r*.9},{x:x-r*.08,y:y+r},
+        {x:x-r*.6,y:y+r*.98},{x:x-r*.7,y:y+r*.72},
+        {x:x-r*.52,y:y+r*.36},{x:x-r*.82,y:y+r*.28}
+      ];
+    } else if (type==="bombardino") {
+      // Crocodile-headed bomber airplane silhouette.
+      vertices=[
+        {x:x-r,y:y-r*.02},{x:x-r*.72,y:y-r*.26},
+        {x:x-r*.28,y:y-r*.3},{x:x-r*.08,y:y-r*.72},
+        {x:x+r*.18,y:y-r*.72},{x:x+r*.3,y:y-r*.3},
+        {x:x+r*.68,y:y-r*.22},{x:x+r,y:y-r*.08},
+        {x:x+r*.82,y:y+r*.08},{x:x+r*.48,y:y+r*.12},
+        {x:x+r*.18,y:y+r*.52},{x:x-r*.02,y:y+r*.52},
+        {x:x-r*.12,y:y+r*.2},{x:x-r*.58,y:y+r*.24},
+        {x:x-r*.82,y:y+r*.14}
+      ];
+    } else if (type==="capybara") {
+      vertices=[
+        {x:x-r*.95,y:y-r*.08},{x:x-r*.7,y:y-r*.42},
+        {x:x-r*.28,y:y-r*.56},{x:x+r*.35,y:y-r*.5},
+        {x:x+r*.68,y:y-r*.28},{x:x+r*.92,y:y-r*.1},
+        {x:x+r,y:y+r*.22},{x:x+r*.68,y:y+r*.42},
+        {x:x+r*.55,y:y+r*.82},{x:x+r*.22,y:y+r*.82},
+        {x:x+r*.12,y:y+r*.42},{x:x-r*.38,y:y+r*.44},
+        {x:x-r*.48,y:y+r*.82},{x:x-r*.78,y:y+r*.82},
+        {x:x-r*.72,y:y+r*.34},{x:x-r,y:y+r*.22}
+      ];
+    } else if (type==="doge") {
+      vertices=[
+        {x:x-r*.62,y:y-r*.72},{x:x-r*.25,y:y-r*.5},
+        {x:x,y:y-r},{x:x+r*.24,y:y-r*.5},
+        {x:x+r*.62,y:y-r*.72},{x:x+r*.52,y:y-r*.2},
+        {x:x+r*.82,y:y+r*.12},{x:x+r*.62,y:y+r*.58},
+        {x:x+r*.2,y:y+r*.9},{x:x-r*.2,y:y+r*.9},
+        {x:x-r*.62,y:y+r*.58},{x:x-r*.82,y:y+r*.12},
+        {x:x-r*.52,y:y-r*.2}
+      ];
+    } else if (type==="cheems") {
+      // Squat seated Shiba silhouette with small ears and round body.
+      vertices=[
+        {x:x-r*.58,y:y-r*.72},{x:x-r*.3,y:y-r*.58},
+        {x:x-r*.08,y:y-r*.92},{x:x+r*.1,y:y-r*.58},
+        {x:x+r*.42,y:y-r*.68},{x:x+r*.52,y:y-r*.3},
+        {x:x+r*.76,y:y-r*.04},{x:x+r*.82,y:y+r*.48},
+        {x:x+r*.62,y:y+r*.88},{x:x+r*.24,y:y+r},
+        {x:x+r*.1,y:y+r*.54},{x:x-r*.04,y:y+r*.98},
+        {x:x-r*.36,y:y+r*.98},{x:x-r*.46,y:y+r*.6},
+        {x:x-r*.72,y:y+r*.8},{x:x-r*.92,y:y+r*.62},
+        {x:x-r*.76,y:y+r*.34},{x:x-r*.82,y:y-r*.08},
+        {x:x-r*.64,y:y-r*.36}
+      ];
+    } else if (type==="shrekhead") {
+      vertices=[
+        {x:x-r*.9,y:y-r*.78},{x:x-r*.62,y:y-r*.72},
+        {x:x-r*.5,y:y-r*.44},{x:x-r*.62,y:y-r*.26},
+        {x:x-r*.86,y:y-r*.34},{x:x-r,y:y-r*.58},
+        {x:x-r*.96,y:y-r*.9},{x:x-r*.68,y:y-r},
+        {x:x-r*.42,y:y-r*.82},{x:x-r*.2,y:y-r*.92},
+        {x:x+r*.2,y:y-r*.92},{x:x+r*.42,y:y-r*.82},
+        {x:x+r*.68,y:y-r},{x:x+r*.96,y:y-r*.9},
+        {x:x+r,y:y-r*.58},{x:x+r*.86,y:y-r*.34},
+        {x:x+r*.62,y:y-r*.26},{x:x+r*.5,y:y-r*.44},
+        {x:x+r*.62,y:y-r*.72},{x:x+r*.9,y:y-r*.78},
+        {x:x+r*.72,y:y-r*.28},{x:x+r*.78,y:y+r*.22},
+        {x:x+r*.56,y:y+r*.68},{x:x+r*.18,y:y+r*.96},
+        {x:x-r*.18,y:y+r*.96},{x:x-r*.56,y:y+r*.68},
+        {x:x-r*.78,y:y+r*.22},{x:x-r*.72,y:y-r*.28}
+      ];
+    } else if (type==="banana") {
+      vertices=[
+        {x:x-r*.92,y:y+r*.04},{x:x-r*.55,y:y-r*.42},
+        {x:x-r*.05,y:y-r*.7},{x:x+r*.52,y:y-r*.62},
+        {x:x+r*.88,y:y-r*.25},{x:x+r*.68,y:y+r*.02},
+        {x:x+r*.18,y:y+r*.46},{x:x-r*.42,y:y+r*.58},
+        {x:x-r*.82,y:y+r*.38}
+      ];
+    } else if (type==="toilet") {
+      // Toilet base with a head rising from the bowl.
+      vertices=[
+        {x:x-r*.32,y:y-r},{x:x+r*.18,y:y-r},
+        {x:x+r*.38,y:y-r*.72},{x:x+r*.38,y:y-r*.32},
+        {x:x+r*.78,y:y-r*.32},{x:x+r*.92,y:y-r*.05},
+        {x:x+r*.82,y:y+r*.22},{x:x+r*.42,y:y+r*.34},
+        {x:x+r*.32,y:y+r*.78},{x:x+r*.58,y:y+r},
+        {x:x-r*.5,y:y+r},{x:x-r*.62,y:y+r*.68},
+        {x:x-r*.42,y:y+r*.38},{x:x-r*.78,y:y+r*.18},
+        {x:x-r*.84,y:y-r*.18},{x:x-r*.6,y:y-r*.38},
+        {x:x-r*.32,y:y-r*.38}
+      ];
+
+    } else if (type === "box") {
+      const w = r*(1.15+Math.random()*.65);
+      const h = r*(.85+Math.random()*.6);
+      vertices = [
+        {x:x-w/2,y:y-h/2},{x:x+w/2,y:y-h/2},
+        {x:x+w/2,y:y+h/2},{x:x-w/2,y:y+h/2}
+      ];
+    } else {
+      const sides = {
+        triangle:3,
+        pentagon:5,
+        hexagon:6,
+        octagon:8
+      }[type];
+      vertices = regularPolygon(x,y,r,sides);
+    }
+
+    const memeColors = {
+      tungtung:"#9a5a2c",
+      tralalero:"#3c91d6",
+      bombardino:"#718a45",
+      capybara:"#9a7047",
+      doge:"#d6a85f",
+      cheems:"#c98f4d",
+      shrekhead:"#78a84f",
+      toilet:"#e7e7e7",
+      banana:"#e4bd32",
+      creeper:"#58a83f",
+      roblox:"#f4d21f"
+    };
+
+    const amongUsColors=[
+      "#C51111","#132FD2","#117F2D","#F5F557","#EF7D0D",
+      "#6B2FBC","#39FEDB","#71491E","#EC54BA","#3F474E",
+      "#D7E1F1","#50EF39"
+    ];
+
+    const humanColors=[
+      "#e74c3c","#3498db","#2ecc71","#f1c40f","#9b59b6",
+      "#e67e22","#1abc9c","#95a5a6","#ff69b4","#7f8c8d"
+    ];
+
+    let bodyColor = memeColors[type];
+    if(type==="amongus"){
+      bodyColor=amongUsColors[(Math.random()*amongUsColors.length)|0];
+    }else if(type==="human"){
+      bodyColor=humanColors[(Math.random()*humanColors.length)|0];
+    }
+
+    const body = bodyFromWorldVertices(vertices,{
+      vel:{x:(Math.random()-.5)*70,y:Math.random()*20},
+      angVel:(Math.random()-.5)*1.2,
+      color:bodyColor
+    });
+
+    body.shapeType = type;
+    bodies.push(body);
+  }
+
+  function pointInPolygon(point,vertices) {
+    let inside = false;
+    for (let i=0,j=vertices.length-1;i<vertices.length;j=i++) {
+      const a = vertices[i];
+      const b = vertices[j];
+      const intersects =
+        ((a.y>point.y)!==(b.y>point.y)) &&
+        point.x < (b.x-a.x)*(point.y-a.y)/(b.y-a.y)+a.x;
+      if (intersects) inside = !inside;
+    }
+    return inside;
+  }
+
+  function getBodyAt(point) {
+    for (let i=bodies.length-1;i>=0;i--) {
+      if (pointInPolygon(point,getWorldVertices(bodies[i]))) return bodies[i];
+    }
+    return null;
+  }
+
+  function lineSide(point,a,b) {
+    return cross(sub(b,a),sub(point,a));
+  }
+
+  function segmentIntersection(a,b,c,d) {
+    const r = sub(b,a);
+    const s = sub(d,c);
+    const denominator = cross(r,s);
+    if (Math.abs(denominator)<1e-8) return null;
+
+    const t = cross(sub(c,a),s)/denominator;
+    const u = cross(sub(c,a),r)/denominator;
+
+    if (t>=0 && t<=1 && u>=0 && u<=1) return add(a,mul(r,t));
+    return null;
+  }
+
+  function cleanPolygon(points) {
+    const clean = [];
+    for (const p of points) {
+      if (!clean.length || length(sub(p,clean[clean.length-1]))>.5) clean.push(p);
+    }
+    if (clean.length>2 && length(sub(clean[0],clean[clean.length-1]))<.5) clean.pop();
+    return clean;
+  }
+
+  function clipByLine(vertices,a,b,positive) {
+    const output = [];
+
+    for (let i=0;i<vertices.length;i++) {
+      const current = vertices[i];
+      const next = vertices[(i+1)%vertices.length];
+      const currentSide = lineSide(current,a,b);
+      const nextSide = lineSide(next,a,b);
+      const currentInside = positive ? currentSide>=0 : currentSide<=0;
+      const nextInside = positive ? nextSide>=0 : nextSide<=0;
+
+      if (currentInside) output.push(current);
+
+      if (currentInside !== nextInside) {
+        const edge = sub(next,current);
+        const cut = sub(b,a);
+        const denominator = cross(edge,cut);
+
+        if (Math.abs(denominator)>1e-8) {
+          const t = cross(sub(a,current),cut)/denominator;
+          output.push(add(current,mul(edge,t)));
+        }
+      }
+    }
+
+    return cleanPolygon(output);
+  }
+
+  function velocityAtPoint(body,point) {
+    const radius = sub(point,body.pos);
+    return add(body.vel,mul(perpendicular(radius),body.angVel));
+  }
+
+  function sliceBody(body,a,b) {
+    const vertices = getWorldVertices(body);
+    let hitCount = 0;
+
+    for (let i=0;i<vertices.length;i++) {
+      if (segmentIntersection(a,b,vertices[i],vertices[(i+1)%vertices.length])) {
+        hitCount++;
+      }
+    }
+
+    if (hitCount<2) return null;
+
+    const first = clipByLine(vertices,a,b,true);
+    const second = clipByLine(vertices,a,b,false);
+
+    if (first.length<3 || second.length<3) return null;
+    if (Math.abs(polygonArea(first))<150 || Math.abs(polygonArea(second))<150) return null;
+
+    const direction = normalize(sub(b,a));
+    const normal = perpendicular(direction);
+    const firstCenter = centroid(first);
+    const secondCenter = centroid(second);
+    const firstSide = Math.sign(lineSide(firstCenter,a,b)) || 1;
+    const secondSide = Math.sign(lineSide(secondCenter,a,b)) || -1;
+
+    const firstBody = bodyFromWorldVertices(first,{
+      color:body.color,
+      vel:add(velocityAtPoint(body,firstCenter),mul(normal,35*firstSide)),
+      angVel:body.angVel
+    });
+
+    const secondBody = bodyFromWorldVertices(second,{
+      color:body.color,
+      vel:add(velocityAtPoint(body,secondCenter),mul(normal,35*secondSide)),
+      angVel:body.angVel
+    });
+
+    firstBody.pos = add(firstBody.pos,mul(normal,1.5*firstSide));
+    secondBody.pos = add(secondBody.pos,mul(normal,1.5*secondSide));
+
+    return [firstBody,secondBody];
+  }
+
+  function performSlice(a,b) {
+    const nextBodies = [];
+    let slicedSomething = false;
+
+    for (const body of bodies) {
+      const pieces = sliceBody(body,a,b);
+      if (pieces) {
+        nextBodies.push(...pieces);
+        cuts++;
+        slicedSomething = true;
+      } else {
+        nextBodies.push(body);
+      }
+    }
+
+    bodies = nextBodies;
+    if (slicedSomething) flash = .15;
+  }
+
+  function project(vertices,axis) {
+    let min = Infinity;
+    let max = -Infinity;
+
+    for (const vertex of vertices) {
+      const value = dot(vertex,axis);
+      min = Math.min(min,value);
+      max = Math.max(max,value);
+    }
+
+    return {min,max};
+  }
+
+  function supportPoint(vertices,direction) {
+    let best = vertices[0];
+    let bestValue = dot(best,direction);
+
+    for (let i=1;i<vertices.length;i++) {
+      const value = dot(vertices[i],direction);
+      if (value>bestValue) {
+        best = vertices[i];
+        bestValue = value;
+      }
+    }
+
+    return best;
+  }
+
+  function findConvexCollision(aVertices,bVertices,aCenter,bCenter) {
+    let smallestOverlap = Infinity;
+    let bestAxis = null;
+
+    for (const vertices of [aVertices,bVertices]) {
+      for (let i=0;i<vertices.length;i++) {
+        const edge = sub(vertices[(i+1)%vertices.length],vertices[i]);
+        const axis = normalize(perpendicular(edge));
+        const aProjection = project(aVertices,axis);
+        const bProjection = project(bVertices,axis);
+        const overlap = Math.min(aProjection.max,bProjection.max)-Math.max(aProjection.min,bProjection.min);
+
+        if (overlap<=0) return null;
+
+        if (overlap<smallestOverlap) {
+          smallestOverlap = overlap;
+          bestAxis = axis;
+        }
+      }
+    }
+
+    if (dot(sub(bCenter,aCenter),bestAxis)<0) bestAxis = mul(bestAxis,-1);
+
+    const pointOnA = supportPoint(aVertices,bestAxis);
+    const pointOnB = supportPoint(bVertices,mul(bestAxis,-1));
+
+    return {
+      normal:bestAxis,
+      penetration:smallestOverlap,
+      contact:mul(add(pointOnA,pointOnB),.5)
+    };
+  }
+
+  function findCollision(a,b) {
+    const aParts = getWorldParts(a);
+    const bParts = getWorldParts(b);
+    let best = null;
+
+    for (const aPart of aParts) {
+      const aCenter = centroid(aPart);
+
+      for (const bPart of bParts) {
+        const bCenter = centroid(bPart);
+        const collision = findConvexCollision(aPart,bPart,aCenter,bCenter);
+
+        if (collision && (!best || collision.penetration < best.penetration)) {
+          best = collision;
+        }
+      }
+    }
+
+    return best;
+  }
+
+  function applyImpulse(a,b,collision) {
+    const normal = collision.normal;
+    const ra = sub(collision.contact,a.pos);
+    const rb = sub(collision.contact,b.pos);
+
+    const velocityA = add(a.vel,mul(perpendicular(ra),a.angVel));
+    const velocityB = add(b.vel,mul(perpendicular(rb),b.angVel));
+    const relativeVelocity = sub(velocityB,velocityA);
+    const speedAlongNormal = dot(relativeVelocity,normal);
+
+    if (speedAlongNormal>0) return;
+
+    const restitution = 0.22;
+    const raCrossN = cross(ra,normal);
+    const rbCrossN = cross(rb,normal);
+
+    const denominator =
+      a.invMass+b.invMass+
+      raCrossN*raCrossN*a.invInertia+
+      rbCrossN*rbCrossN*b.invInertia;
+
+    if (denominator<=0) return;
+
+    let impulseMagnitude = -(1+restitution)*speedAlongNormal/denominator;
+
+    if (Math.abs(impulseMagnitude) > 0.08) {
+      a.sleeping = false;
+      b.sleeping = false;
+      a.sleepTimer = 0;
+      b.sleepTimer = 0;
+    }
+
+    const normalImpulse = mul(normal,impulseMagnitude);
+
+    a.vel = sub(a.vel,mul(normalImpulse,a.invMass));
+    b.vel = add(b.vel,mul(normalImpulse,b.invMass));
+    a.angVel -= cross(ra,normalImpulse)*a.invInertia;
+    b.angVel += cross(rb,normalImpulse)*b.invInertia;
+
+    const afterVelocityA = add(a.vel,mul(perpendicular(ra),a.angVel));
+    const afterVelocityB = add(b.vel,mul(perpendicular(rb),b.angVel));
+    const afterRelative = sub(afterVelocityB,afterVelocityA);
+
+    let tangent = sub(afterRelative,mul(normal,dot(afterRelative,normal)));
+    if (length(tangent)>1e-7) tangent = normalize(tangent);
+
+    let frictionMagnitude = -dot(afterRelative,tangent)/denominator;
+    const friction = .48;
+    const maxFriction = Math.abs(impulseMagnitude)*friction;
+    frictionMagnitude = clamp(frictionMagnitude,-maxFriction,maxFriction);
+
+    const frictionImpulse = mul(tangent,frictionMagnitude);
+    a.vel = sub(a.vel,mul(frictionImpulse,a.invMass));
+    b.vel = add(b.vel,mul(frictionImpulse,b.invMass));
+    a.angVel -= cross(ra,frictionImpulse)*a.invInertia;
+    b.angVel += cross(rb,frictionImpulse)*b.invInertia;
+  }
+
+  function correctPositions(a,b,collision) {
+    const slop = .25;
+    const percent = .72;
+    const correctionAmount =
+      Math.max(collision.penetration-slop,0)/
+      (a.invMass+b.invMass)*percent;
+
+    const correction = mul(collision.normal,correctionAmount);
+    a.pos = sub(a.pos,mul(correction,a.invMass));
+    b.pos = add(b.pos,mul(correction,b.invMass));
+  }
+
+  function solveWorldBounds(body) {
+    const vertices = getWorldVertices(body);
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let lowest = [];
+
+    for (const vertex of vertices) {
+      minX = Math.min(minX,vertex.x);
+      maxX = Math.max(maxX,vertex.x);
+      minY = Math.min(minY,vertex.y);
+      if (vertex.y > maxY - 1.5) {
+        if (vertex.y > maxY + 1.5) lowest = [];
+        lowest.push(vertex);
+        maxY = Math.max(maxY,vertex.y);
+      }
+    }
+
+    const bounce = 0.22;
+    const floorY = height-10;
+
+    if (maxY>floorY) {
+      const penetration = maxY-floorY;
+      body.pos.y -= penetration;
+
+      const contact = lowest.length
+        ? lowest.reduce((sum,p)=>add(sum,p),{x:0,y:0})
+        : {x:body.pos.x,y:floorY};
+
+      if (lowest.length) {
+        contact.x /= lowest.length;
+        contact.y /= lowest.length;
+      }
+
+      const r = sub(contact,body.pos);
+      const contactVelocity = add(body.vel,mul(perpendicular(r),body.angVel));
+      const normalSpeed = contactVelocity.y;
+
+      if (normalSpeed>0) {
+        const rCrossN = r.x;
+        const denominator = body.invMass + rCrossN*rCrossN*body.invInertia;
+        let impulseMagnitude = -(1+bounce)*normalSpeed/Math.max(denominator,1e-8);
+
+        if (Math.abs(normalSpeed)<35) {
+          impulseMagnitude = -normalSpeed/Math.max(denominator,1e-8);
+        }
+
+        const impulse = {x:0,y:impulseMagnitude};
+        body.vel = add(body.vel,mul(impulse,body.invMass));
+        body.angVel += cross(r,impulse)*body.invInertia;
+      }
+
+      // Floor friction is handled with time-based damping in update().
+      // A single-point contact receives a small torque so it cannot balance forever.
+      const nearRest = Math.abs(body.vel.y)<28;
+      if (nearRest && lowest.length===1 && Math.abs(body.angVel)<.22) {
+        const centerOffset = body.pos.x-contact.x;
+        if (Math.abs(centerOffset)>1.5) {
+          body.angVel += Math.sign(centerOffset)*0.035;
+        }
+      }
+    }
+
+    if (minX<0) {
+      body.pos.x -= minX;
+      if (body.vel.x<0) body.vel.x = -body.vel.x*bounce;
+      body.angVel *= .9;
+    }
+
+    if (maxX>width) {
+      body.pos.x -= maxX-width;
+      if (body.vel.x>0) body.vel.x = -body.vel.x*bounce;
+      body.angVel *= .9;
+    }
+
+    if (minY<0) {
+      body.pos.y -= minY;
+      if (body.vel.y<0) body.vel.y = -body.vel.y*bounce;
+    }
+  }
+
+  function update(dt) {
+    if (paused) return;
+
+    if (slowMotion) dt *= .25;
+    dt = Math.min(dt,.022);
+
+    const substeps = 5;
+    const step = dt/substeps;
+    const gravity = 900;
+    const damping = 0.08;
+
+    for (let s=0;s<substeps;s++) {
+      for (const body of bodies) {
+        if (!body.sleeping) {
+          body.vel.y += gravity*step;
+          body.vel.x += wind*step;
+
+          const linearDamping = Math.exp(-damping*step);
+          const angularDamping = Math.exp(-damping*.7*step);
+          body.vel.x *= linearDamping;
+          body.vel.y *= linearDamping;
+          body.angVel *= angularDamping;
+        }
+
+        if (body===heldBody) {
+          body.sleeping = false;
+          body.sleepTimer = 0;
+          const worldGrab = add(body.pos,rotate(heldLocalPoint,body.angle));
+          const error = sub(pointer,worldGrab);
+          const grabVelocity = mul(error,28);
+          body.vel = add(mul(body.vel,.55),mul(grabVelocity,.45));
+          body.angVel *= .72;
+        }
+
+        if (!body.sleeping) {
+          body.pos = add(body.pos,mul(body.vel,step));
+          body.angle += body.angVel*step;
+          solveWorldBounds(body);
+
+          const vertices = getWorldVertices(body);
+          const onFloor = vertices.some(vertex => vertex.y >= height-11.2);
+
+          if (onFloor) {
+            // These values are per-second, so settling no longer depends on FPS/substeps.
+            body.vel.x *= Math.exp(-5.2*step);
+            body.angVel *= Math.exp(-4.1*step);
+
+            const speed = Math.hypot(body.vel.x,body.vel.y);
+            const angularSpeed = Math.abs(body.angVel);
+
+            if (speed < 7 && angularSpeed < 0.055) {
+              body.sleepTimer += step;
+              if (body.sleepTimer >= 0.42) {
+                body.vel.x = 0;
+                body.vel.y = 0;
+                body.angVel = 0;
+                body.sleeping = true;
+              }
+            } else {
+              body.sleepTimer = 0;
+            }
+          } else {
+            body.sleepTimer = 0;
+          }
+        }
+      }
+
+      const contacts = [];
+
+      for (let i=0;i<bodies.length;i++) {
+        for (let j=i+1;j<bodies.length;j++) {
+          const a = bodies[i];
+          const b = bodies[j];
+
+          if (length(sub(a.pos,b.pos))>a.radius+b.radius+3) continue;
+
+          const collision = findCollision(a,b);
+          if (collision) contacts.push({a,b,collision});
+        }
+      }
+
+      for (let iteration=0;iteration<7;iteration++) {
+        for (const contact of contacts) {
+          applyImpulse(contact.a,contact.b,contact.collision);
+        }
+      }
+
+      for (const contact of contacts) {
+        correctPositions(contact.a,contact.b,contact.collision);
+
+        contact.a.sleeping = false;
+        contact.b.sleeping = false;
+      }
+    }
+
+    wind *= Math.pow(.25,dt);
+    bodies = bodies.filter(body =>
+      body.pos.y<height+800 &&
+      body.pos.x>-800 &&
+      body.pos.x<width+800
+    );
+  }
+
+  function drawBackground() {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0,0,width,height);
+
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0,height-10,width,10);
+  }
+
+  function drawMemeDetails(ctx, body) {
+    const type = body.shapeType;
+    if (!["tungtung","tralalero","bombardino","capybara","doge","cheems","shrekhead","toilet","banana","amongus","creeper","roblox","human"].includes(type)) return;
+
+    const xs = body.verts.map(p=>p.x);
+    const ys = body.verts.map(p=>p.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const w = maxX-minX, h = maxY-minY;
+    const X = n => minX + (n+1)*.5*w;
+    const Y = n => minY + (n+1)*.5*h;
+
+    ctx.save();
+    ctx.translate(body.pos.x,body.pos.y);
+    ctx.rotate(body.angle);
+    ctx.lineWidth=Math.max(1.2,Math.min(w,h)*.025);
+    ctx.strokeStyle="#171717";
+    ctx.fillStyle="#171717";
+    ctx.shadowColor="transparent";
+
+    const eye=(nx,ny,size=.055)=>{
+      ctx.beginPath();
+      ctx.fillStyle="#fff";
+      ctx.arc(X(nx),Y(ny),Math.min(w,h)*size,0,Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.fillStyle="#111";
+      ctx.arc(X(nx+.01),Y(ny),Math.min(w,h)*size*.42,0,Math.PI*2);
+      ctx.fill();
+    };
+
+    if (type==="amongus") {
+      // Backpack, large blue visor and leg gap.
+      ctx.fillStyle="#9fcfe0";
+      ctx.beginPath();
+      ctx.roundRect(X(-.02),Y(-.57),w*.42,h*.24,Math.min(w,h)*.08);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle="rgba(255,255,255,.65)";
+      ctx.beginPath();
+      ctx.ellipse(X(.08),Y(-.61),w*.1,h*.035,-.1,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle="rgba(0,0,0,.16)";
+      ctx.beginPath();
+      ctx.roundRect(X(-.9),Y(-.23),w*.17,h*.45,Math.min(w,h)*.04);
+      ctx.fill(); ctx.stroke();
+      ctx.strokeStyle="#171717";
+      ctx.lineWidth=Math.max(2,Math.min(w,h)*.04);
+      ctx.beginPath(); ctx.moveTo(X(-.08),Y(.48)); ctx.lineTo(X(-.08),Y(.93)); ctx.stroke();
+    } else if (type==="creeper") {
+      // Pixel face.
+      const s=Math.min(w,h)*.14;
+      ctx.fillStyle="#111";
+      ctx.fillRect(X(-.45)-s/2,Y(-.55)-s/2,s,s);
+      ctx.fillRect(X(.45)-s/2,Y(-.55)-s/2,s,s);
+      ctx.fillRect(X(-.12)-s/2,Y(-.2)-s/2,s,s);
+      ctx.fillRect(X(.12)-s/2,Y(-.2)-s/2,s,s);
+      ctx.fillRect(X(-.24)-s/2,Y(.02)-s/2,s,s*1.7);
+      ctx.fillRect(X(.24)-s/2,Y(.02)-s/2,s,s*1.7);
+    } else if (type==="roblox") {
+      // Classic yellow head/arms, blue torso and green legs.
+      ctx.fillStyle="#f4d21f";
+      ctx.fillRect(X(-.27),Y(-.95),w*.27,h*.2);
+      ctx.fillRect(X(-.52),Y(-.55),w*.12,h*.38);
+      ctx.fillRect(X(.4),Y(-.55),w*.12,h*.38);
+      ctx.fillStyle="#2887d8";
+      ctx.fillRect(X(-.27),Y(-.58),w*.27,h*.39);
+      ctx.fillStyle="#49a94d";
+      ctx.fillRect(X(-.27),Y(-.18),w*.12,h*.63);
+      ctx.fillRect(X(.03),Y(-.18),w*.12,h*.63);
+      ctx.fillStyle="#111";
+      ctx.beginPath(); ctx.arc(X(-.1),Y(-.82),Math.min(w,h)*.022,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(X(.1),Y(-.82),Math.min(w,h)*.022,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(X(0),Y(-.76),Math.min(w,h)*.08,0,Math.PI); ctx.stroke();
+    } else if (type==="human") {
+      ctx.fillStyle="#f1c27d";
+      ctx.beginPath(); ctx.arc(X(0),Y(-.8),Math.min(w,h)*.12,0,Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle="#4d84c4";
+      ctx.fillRect(X(-.16),Y(-.56),w*.16,h*.38);
+    } else if (type==="tungtung") {
+      eye(-.17,-.42,.06); eye(.13,-.42,.06);
+      ctx.beginPath();
+      ctx.arc(X(0),Y(-.08),Math.min(w,h)*.11,0,Math.PI);
+      ctx.stroke();
+      ctx.strokeStyle="rgba(60,25,8,.55)";
+      for (const nx of [-.18,.08]) {
+        ctx.beginPath(); ctx.moveTo(X(nx),Y(-.85)); ctx.lineTo(X(nx+.06),Y(.65)); ctx.stroke();
+      }
+    } else if (type==="tralalero") {
+      eye(.34,-.34,.055);
+      ctx.fillStyle="#fff";
+      ctx.beginPath();
+      ctx.moveTo(X(.18),Y(-.08)); ctx.lineTo(X(.63),Y(.03)); ctx.lineTo(X(.2),Y(.18)); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle="#e94d44";
+      ctx.fillRect(X(-.36),Y(.58),w*.24,h*.11);
+      ctx.fillRect(X(.22),Y(.58),w*.24,h*.11);
+    } else if (type==="bombardino") {
+      eye(.52,-.12,.045);
+      ctx.fillStyle="#fff";
+      for (let i=0;i<4;i++) {
+        const px=X(.48+i*.1);
+        ctx.beginPath(); ctx.moveTo(px,Y(.02)); ctx.lineTo(px+w*.035,Y(.14)); ctx.lineTo(px+w*.07,Y(.02)); ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+      ctx.beginPath(); ctx.arc(X(-.28),Y(-.02),Math.min(w,h)*.13,0,Math.PI*2); ctx.stroke();
+    } else if (type==="capybara") {
+      eye(.54,-.23,.04);
+      ctx.beginPath(); ctx.arc(X(.78),Y(-.02),Math.min(w,h)*.06,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(X(.47),Y(.04)); ctx.lineTo(X(.77),Y(.08)); ctx.stroke();
+    } else if (type==="doge") {
+      eye(-.2,-.22,.055); eye(.2,-.22,.055);
+      ctx.fillStyle="#2b2118";
+      ctx.beginPath(); ctx.arc(X(0),Y(.04),Math.min(w,h)*.075,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(X(0),Y(.13)); ctx.quadraticCurveTo(X(-.14),Y(.27),X(-.28),Y(.16)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(0),Y(.13)); ctx.quadraticCurveTo(X(.14),Y(.27),X(.28),Y(.16)); ctx.stroke();
+    } else if (type==="cheems") {
+      // Smaller, squintier eyes and a side-facing snout.
+      eye(-.28,-.48,.043); eye(.02,-.46,.043);
+      ctx.fillStyle="#eee0bf";
+      ctx.beginPath();
+      ctx.ellipse(X(-.22),Y(-.2),w*.18,h*.1,-.08,0,Math.PI*2);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle="#2b2118";
+      ctx.beginPath(); ctx.arc(X(-.39),Y(-.23),Math.min(w,h)*.055,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(X(-.34),Y(-.12)); ctx.quadraticCurveTo(X(-.18),Y(-.02),X(-.02),Y(-.08)); ctx.stroke();
+      ctx.strokeStyle="#805d36";
+      ctx.beginPath(); ctx.moveTo(X(-.3),Y(.12)); ctx.lineTo(X(-.38),Y(.72)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(.14),Y(.08)); ctx.lineTo(X(.08),Y(.8)); ctx.stroke();
+    } else if (type==="shrekhead") {
+      // Heavy brow, wide nose, nostrils and broad grin.
+      eye(-.24,-.22,.052); eye(.24,-.22,.052);
+      ctx.lineWidth=Math.max(1.5,Math.min(w,h)*.035);
+      ctx.beginPath(); ctx.moveTo(X(-.4),Y(-.37)); ctx.quadraticCurveTo(X(-.23),Y(-.48),X(-.08),Y(-.37)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(.08),Y(-.37)); ctx.quadraticCurveTo(X(.23),Y(-.48),X(.4),Y(-.37)); ctx.stroke();
+      ctx.fillStyle="#66913f";
+      ctx.beginPath(); ctx.ellipse(X(0),Y(.06),w*.18,h*.12,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle="#1c1c1c";
+      ctx.beginPath(); ctx.arc(X(-.08),Y(.06),Math.min(w,h)*.025,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(X(.08),Y(.06),Math.min(w,h)*.025,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(X(-.34),Y(.36)); ctx.quadraticCurveTo(X(0),Y(.62),X(.34),Y(.36)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(-.25),Y(.42)); ctx.quadraticCurveTo(X(0),Y(.5),X(.25),Y(.42)); ctx.stroke();
+    } else if (type==="toilet") {
+      eye(-.05,-.72,.05); eye(.18,-.72,.05);
+      ctx.beginPath(); ctx.arc(X(.06),Y(-.5),Math.min(w,h)*.1,0,Math.PI); ctx.stroke();
+      ctx.strokeStyle="#777";
+      ctx.beginPath(); ctx.ellipse(X(.05),Y(.08),w*.28,h*.12,0,0,Math.PI*2); ctx.stroke();
+    } else if (type==="banana") {
+      ctx.strokeStyle="#8d6918";
+      ctx.beginPath(); ctx.moveTo(X(-.72),Y(.08)); ctx.quadraticCurveTo(X(0),Y(.35),X(.65),Y(-.2)); ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function drawBody(body) {
+    const vertices = getWorldVertices(body);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(vertices[0].x,vertices[0].y);
+    for (let i=1;i<vertices.length;i++) ctx.lineTo(vertices[i].x,vertices[i].y);
+    ctx.closePath();
+
+    ctx.shadowColor = "rgba(0,0,0,.26)";
+    ctx.shadowBlur = 7;
+    ctx.shadowOffsetX = 3;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = body.color;
+    ctx.fill();
+
+    ctx.shadowColor = "transparent";
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#34302c";
+    ctx.stroke();
+
+    ctx.globalAlpha = .18;
+    ctx.beginPath();
+    ctx.moveTo(vertices[0].x,vertices[0].y);
+    for (let i=1;i<Math.min(3,vertices.length);i++) ctx.lineTo(vertices[i].x,vertices[i].y);
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.restore();
+    drawMemeDetails(ctx,body);
+  }
+
+  function drawSliceLine() {
+    if (!sliceStart || !pointer.down) return;
+
+    ctx.save();
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#f7efe1";
+    ctx.shadowColor = "#f7efe1";
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.moveTo(sliceStart.x,sliceStart.y);
+    ctx.lineTo(pointer.x,pointer.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function draw() {
+    drawBackground();
+
+    for (const body of bodies) drawBody(body);
+    drawSliceLine();
+
+    if (flash>0) {
+      ctx.fillStyle = `rgba(255,245,225,${flash})`;
+      ctx.fillRect(0,0,width,height);
+      flash *= .72;
+    }
+
+      }
+
+  function pointerPosition(event) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x:event.clientX-rect.left,
+      y:event.clientY-rect.top
+    };
+  }
+  const spawnables = [
+    {id:"random",name:"random shape",tag:"mix"},
+    {id:"box",name:"box",tag:"basic"},
+    {id:"triangle",name:"triangle",tag:"basic"},
+    {id:"pentagon",name:"pentagon",tag:"basic"},
+    {id:"hexagon",name:"hexagon",tag:"basic"},
+    {id:"octagon",name:"octagon",tag:"basic"},
+    {id:"circle",name:"circle",tag:"basic"},
+    {id:"diamond",name:"diamond",tag:"basic"},
+    {id:"arrow",name:"arrow",tag:"symbol"},
+    {id:"cross",name:"cross",tag:"symbol"},
+    {id:"human",name:"t-pose human",tag:"meme"},
+    {id:"amongus",name:"among us",tag:"meme"},
+    {id:"creeper",name:"creeper",tag:"meme"},
+    {id:"roblox",name:"blocky noob",tag:"meme"},
+    {id:"robot",name:"robot",tag:"meme"},
+    {id:"alien",name:"alien head",tag:"meme"},
+    {id:"ghost",name:"ghost",tag:"spooky"},
+    {id:"skull",name:"skull",tag:"spooky"},
+    {id:"snowman",name:"snowman",tag:"character"},
+    {id:"star",name:"star",tag:"symbol"},
+    {id:"heart",name:"heart",tag:"symbol"},
+    {id:"lightning",name:"lightning bolt",tag:"symbol"},
+    {id:"moon",name:"crescent moon",tag:"space"},
+    {id:"sun",name:"sun",tag:"space"},
+    {id:"planet",name:"planet",tag:"space"},
+    {id:"gem",name:"gem",tag:"symbol"},
+    {id:"crown",name:"crown",tag:"object"},
+    {id:"sword",name:"sword",tag:"weapon"},
+    {id:"axe",name:"battle axe",tag:"weapon"},
+    {id:"hammer",name:"hammer",tag:"weapon"},
+    {id:"shield",name:"shield",tag:"weapon"},
+    {id:"tank",name:"tank",tag:"vehicle"},
+    {id:"rocket",name:"rocket",tag:"vehicle"},
+    {id:"ufo",name:"ufo",tag:"vehicle"},
+    {id:"submarine",name:"submarine",tag:"vehicle"},
+    {id:"plane",name:"airplane",tag:"vehicle"},
+    {id:"anchor",name:"anchor",tag:"object"},
+    {id:"key",name:"giant key",tag:"object"},
+    {id:"anvil",name:"cartoon anvil",tag:"object"},
+    {id:"bone",name:"bone",tag:"object"},
+    {id:"hourglass",name:"hourglass",tag:"object"},
+    {id:"controller",name:"game controller",tag:"tech"},
+    {id:"camera",name:"camera",tag:"tech"},
+    {id:"phone",name:"phone",tag:"tech"},
+    {id:"magnet",name:"magnet",tag:"object"},
+    {id:"boot",name:"giant boot",tag:"object"},
+    {id:"trophy",name:"trophy",tag:"object"},
+    {id:"flask",name:"potion flask",tag:"object"},
+    {id:"musicnote",name:"music note",tag:"symbol"},
+    {id:"house",name:"house",tag:"object"},
+    {id:"pizza",name:"pizza slice",tag:"food"},
+    {id:"mushroom",name:"mushroom",tag:"food"},
+    {id:"donut",name:"donut",tag:"food"},
+    {id:"cup",name:"cup",tag:"food"},
+    {id:"duck",name:"duck",tag:"animal"},
+    {id:"fish",name:"fish",tag:"animal"},
+    {id:"cat",name:"cat head",tag:"animal"},
+    {id:"bat",name:"bat",tag:"animal"},
+    {id:"tree",name:"tree",tag:"nature"},
+    {id:"flower",name:"flower",tag:"nature"},
+    {id:"cactus",name:"cactus",tag:"nature"},
+    {id:"cloud",name:"cloud",tag:"nature"},
+    {id:"tungtung",name:"tung tung tung sahur",tag:"meme"},
+    {id:"tralalero",name:"tralalero tralala",tag:"meme"},
+    {id:"bombardino",name:"bombardino crocodilo",tag:"meme"},
+    {id:"capybara",name:"capybara",tag:"meme"},
+    {id:"banana",name:"banana",tag:"meme"},
+    {id:"doge",name:"doge",tag:"meme"},
+    {id:"cheems",name:"cheems",tag:"meme"},
+    {id:"shrekhead",name:"shrek head",tag:"meme"},
+    {id:"toilet",name:"skibidi toilet",tag:"meme"}
+  ];
+
+  function previewPoints(type) {
+    const cx=50, cy=30, r=22;
+    if (type==="random") return regularPolygon(cx,cy,r,5,-Math.PI/2);
+    if (type==="box") return [{x:25,y:12},{x:75,y:12},{x:75,y:48},{x:25,y:48}];
+    if (type==="triangle") return regularPolygon(cx,cy,r,3,-Math.PI/2);
+    if (type==="pentagon") return regularPolygon(cx,cy,r,5,-Math.PI/2);
+    if (type==="hexagon") return regularPolygon(cx,cy,r,6,0);
+    if (type==="octagon") return regularPolygon(cx,cy,r,8,Math.PI/8);
+    if (type==="circle") return regularPolygon(cx,cy,r,24,0);
+
+    const oldSize = ui.sizeSlider.value;
+    ui.sizeSlider.value = 22;
+    const before = bodies.length;
+    spawn(cx,cy,type);
+    const body = bodies.pop();
+    ui.sizeSlider.value = oldSize;
+    if (!body || bodies.length !== before) return regularPolygon(cx,cy,r,4,0);
+    return getWorldVertices(body);
+  }
+
+  function drawPreview(canvas,type) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cssWidth = Math.max(90, Math.round(canvas.clientWidth || 120));
+    const cssHeight = Math.max(52, Math.round(canvas.clientHeight || cssWidth * 9 / 16));
+
+    canvas.width = Math.round(cssWidth * dpr);
+    canvas.height = Math.round(cssHeight * dpr);
+
+    const preview = canvas.getContext("2d");
+    preview.setTransform(dpr,0,0,dpr,0,0);
+    preview.clearRect(0,0,cssWidth,cssHeight);
+    preview.fillStyle="#f7f7f7";
+    preview.fillRect(0,0,cssWidth,cssHeight);
+
+    const points = previewPoints(type);
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+
+    for (const point of points) {
+      minX=Math.min(minX,point.x);
+      maxX=Math.max(maxX,point.x);
+      minY=Math.min(minY,point.y);
+      maxY=Math.max(maxY,point.y);
+    }
+
+    const padding = 8;
+    const availableWidth = Math.max(1, cssWidth - padding*2);
+    const availableHeight = Math.max(1, cssHeight - padding*2);
+    const shapeWidth = Math.max(1, maxX-minX);
+    const shapeHeight = Math.max(1, maxY-minY);
+    const scale = Math.min(availableWidth/shapeWidth, availableHeight/shapeHeight);
+
+    const centerX=(minX+maxX)*.5;
+    const centerY=(minY+maxY)*.5;
+    const offsetX=cssWidth*.5-centerX*scale;
+    const offsetY=cssHeight*.5-centerY*scale;
+
+    preview.beginPath();
+    preview.moveTo(points[0].x*scale+offsetX,points[0].y*scale+offsetY);
+
+    for (let i=1;i<points.length;i++) {
+      preview.lineTo(points[i].x*scale+offsetX,points[i].y*scale+offsetY);
+    }
+
+    preview.closePath();
+    preview.fillStyle = type==="random" ? "#8a8a8a" : "#d7bd53";
+    preview.fill();
+    preview.lineWidth=1.5;
+    preview.strokeStyle="#111";
+    preview.stroke();
+
+    if (["tungtung","tralalero","bombardino","capybara","doge","cheems","shrekhead","toilet","banana","amongus","creeper","roblox","human"].includes(type)) {
+      const localVerts = points.map(p=>({
+        x:(p.x*scale+offsetX)-cssWidth*.5,
+        y:(p.y*scale+offsetY)-cssHeight*.5
+      }));
+      drawMemeDetails(preview,{
+        shapeType:type,
+        verts:localVerts,
+        pos:{x:cssWidth*.5,y:cssHeight*.5},
+        angle:0
+      });
+    }
+  }
+
+  function renderCategoryFilters() {
+    const currentScroll = ui.categoryFilters.scrollLeft;
+    const categories = ["all", ...new Set(spawnables.map(item => item.tag))];
+
+    ui.categoryFilters.innerHTML = "";
+
+    for (const category of categories) {
+      const button = document.createElement("button");
+      button.className = "category-filter" + (category===selectedSpawnCategory ? " active" : "");
+      button.textContent = category;
+
+      button.onclick = () => {
+        selectedSpawnCategory = category;
+        renderCategoryFilters();
+        renderSpawnOptions(ui.spawnSearch.value, true);
+      };
+
+      ui.categoryFilters.appendChild(button);
+    }
+
+    ui.categoryFilters.scrollLeft = currentScroll;
+  }
+
+  function renderSpawnOptions(query="", preserveScroll=false) {
+    const oldScrollTop = preserveScroll ? ui.spawnOptions.scrollTop : 0;
+    const cleaned = query.trim().toLowerCase();
+
+    const matches = spawnables.filter(item => {
+      const matchesSearch =
+        item.name.includes(cleaned) ||
+        item.tag.includes(cleaned) ||
+        item.id.includes(cleaned);
+
+      const matchesCategory =
+        selectedSpawnCategory==="all" ||
+        item.tag===selectedSpawnCategory;
+
+      return matchesSearch && matchesCategory;
+    });
+
+    ui.spawnOptions.innerHTML = "";
+
+    for (const item of matches) {
+      const button = document.createElement("button");
+      button.className = "spawn-option" + (item.id===selectedSpawnType ? " selected" : "");
+
+      const preview = document.createElement("canvas");
+      preview.className = "spawn-preview";
+      preview.dataset.shapeType = item.id;
+      preview.width = 120;
+      preview.height = 68;
+
+      const name = document.createElement("span");
+      name.className = "spawn-option-name";
+      name.textContent = item.name;
+      name.title = item.name;
+      button.title = item.name;
+
+      const tag = document.createElement("small");
+      tag.textContent = item.tag;
+
+      button.append(preview,name,tag);
+
+      button.onclick = () => {
+        const savedScroll = ui.spawnOptions.scrollTop;
+        selectedSpawnType = item.id;
+        ui.selectedSpawn.textContent = "selected: " + item.name;
+        renderSpawnOptions(ui.spawnSearch.value, true);
+
+        requestAnimationFrame(() => {
+          ui.spawnOptions.scrollTop = savedScroll;
+        });
+      };
+
+      ui.spawnOptions.appendChild(button);
+      drawPreview(preview,item.id);
+    }
+
+    if (!matches.length) {
+      const empty = document.createElement("div");
+      empty.style.padding = "9px";
+      empty.style.fontSize = "11px";
+      empty.textContent = "nothing found";
+      ui.spawnOptions.appendChild(empty);
+    }
+
+    if (preserveScroll) {
+      requestAnimationFrame(() => {
+        ui.spawnOptions.scrollTop = oldScrollTop;
+      });
+    }
+  }
+if ("ResizeObserver" in window) {
+    const spawnPanelResizeObserver = new ResizeObserver(() => {
+      requestAnimationFrame(() => {
+        document.querySelectorAll(".spawn-preview").forEach(canvas => {
+          drawPreview(canvas, canvas.dataset.shapeType);
+        });
+      });
+    });
+
+    spawnPanelResizeObserver.observe(ui.spawnPanel);
+  }
+
+  function clampSpawnPanelToViewport() {
+    const rect = ui.spawnPanel.getBoundingClientRect();
+    const maxLeft = Math.max(0, window.innerWidth - rect.width);
+    const maxTop = Math.max(0, window.innerHeight - rect.height);
+
+    const currentLeft = Number.parseFloat(ui.spawnPanel.style.left);
+    const currentTop = Number.parseFloat(ui.spawnPanel.style.top);
+
+    const left = Number.isFinite(currentLeft) ? currentLeft : rect.left;
+    const top = Number.isFinite(currentTop) ? currentTop : rect.top;
+
+    ui.spawnPanel.style.left = clamp(left, 0, maxLeft) + "px";
+    ui.spawnPanel.style.top = clamp(top, 0, maxTop) + "px";
+    ui.spawnPanel.style.right = "auto";
+  }
+
+  window.addEventListener("resize", clampSpawnPanelToViewport);
+
+  let spawnPanelDrag = null;
+
+  ui.spawnPanelHeader.addEventListener("pointerdown", event => {
+    if (event.button !== 0) return;
+    const rect = ui.spawnPanel.getBoundingClientRect();
+    spawnPanelDrag = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top
+    };
+    ui.spawnPanelHeader.setPointerCapture(event.pointerId);
+  });
+
+  ui.spawnPanelHeader.addEventListener("pointermove", event => {
+    if (!spawnPanelDrag) return;
+
+    const panelWidth = ui.spawnPanel.getBoundingClientRect().width;
+    const panelHeight = ui.spawnPanel.getBoundingClientRect().height;
+    const maxLeft = innerWidth - panelWidth;
+    const maxTop = innerHeight - panelHeight;
+
+    const left = clamp(event.clientX - spawnPanelDrag.offsetX, 0, Math.max(0,maxLeft));
+    const top = clamp(event.clientY - spawnPanelDrag.offsetY, 0, Math.max(0,maxTop));
+
+    ui.spawnPanel.style.left = left + "px";
+    ui.spawnPanel.style.top = top + "px";
+    ui.spawnPanel.style.right = "auto";
+  });
+
+  function stopSpawnPanelDrag() {
+    spawnPanelDrag = null;
+  }
+
+  ui.spawnPanelHeader.addEventListener("pointerup", stopSpawnPanelDrag);
+  ui.spawnPanelHeader.addEventListener("pointercancel", stopSpawnPanelDrag);
+
+  ui.spawnSearch.addEventListener("input", () => {
+    renderSpawnOptions(ui.spawnSearch.value, false);
+  });
+
+  renderCategoryFilters();
+  renderSpawnOptions();
+
+function setMode(nextMode) {
+    mode = nextMode;
+
+    document.querySelectorAll("[data-mode]").forEach(button => {
+      button.classList.toggle("active", button.dataset.mode === mode);
+    });
+
+    canvas.style.cursor =
+      mode === "drag" ? "grab" :
+      mode === "spawn" ? "copy" :
+      mode === "delete" ? "not-allowed" :
+      "crosshair";
+
+    ui.spawnPanel.classList.toggle("visible", mode === "spawn");
+
+    if (mode === "spawn" && !ui.spawnPanel.dataset.positioned) {
+      const rect = ui.spawnPanel.getBoundingClientRect();
+      ui.spawnPanel.style.left = Math.max(0, window.innerWidth - rect.width - 14) + "px";
+      ui.spawnPanel.style.top = "14px";
+      ui.spawnPanel.style.right = "auto";
+      ui.spawnPanel.dataset.positioned = "true";
+    }
+  }
+
+
+  canvas.addEventListener("pointerdown",event=>{
+    const p = pointerPosition(event);
+    pointer.x = p.x;
+    pointer.y = p.y;
+    pointer.down = true;
+    canvas.setPointerCapture(event.pointerId);
+
+    if (mode==="slice") {
+      sliceStart = p;
+    } else if (mode==="spawn") {
+      spawn(p.x,p.y);
+    } else if (mode==="delete") {
+      const body = getBodyAt(p);
+      if (body) bodies = bodies.filter(item=>item!==body);
+    } else if (mode==="drag") {
+      heldBody = getBodyAt(p);
+      if (heldBody) {
+        heldBody.sleeping = false;
+        heldBody.sleepTimer = 0;
+        heldLocalPoint = rotate(sub(p,heldBody.pos),-heldBody.angle);
+        mouseTrail = [{...p,time:performance.now()}];
+        canvas.style.cursor = "grabbing";
+      }
+    }
+  });
+
+  canvas.addEventListener("pointermove",event=>{
+    const p = pointerPosition(event);
+    pointer.x = p.x;
+    pointer.y = p.y;
+
+    if (heldBody) {
+      mouseTrail.push({...p,time:performance.now()});
+      while (mouseTrail.length>7) mouseTrail.shift();
+    }
+  });
+
+  canvas.addEventListener("pointerup",event=>{
+    const p = pointerPosition(event);
+    pointer.x = p.x;
+    pointer.y = p.y;
+    pointer.down = false;
+
+    if (mode==="slice" && sliceStart && length(sub(p,sliceStart))>10) {
+      performSlice(sliceStart,p);
+    }
+
+    sliceStart = null;
+
+    if (heldBody) {
+      if (mouseTrail.length>=2) {
+        const first = mouseTrail[0];
+        const last = mouseTrail[mouseTrail.length-1];
+        const time = Math.max(.02,(last.time-first.time)/1000);
+        heldBody.vel = {
+          x:clamp((last.x-first.x)/time,-1800,1800),
+          y:clamp((last.y-first.y)/time,-1800,1800)
+        };
+      }
+
+      heldBody = null;
+      heldLocalPoint = null;
+      mouseTrail = [];
+      canvas.style.cursor = "grab";
+    }
+  });
+
+  canvas.addEventListener("contextmenu",event=>{
+    event.preventDefault();
+    const p = pointerPosition(event);
+    spawn(p.x,p.y);
+  });
+
+
+
+  document.querySelectorAll("[data-mode]").forEach(button=>{
+    button.addEventListener("click",()=>setMode(button.dataset.mode));
+  });
+
+  document.getElementById("spawnTen").onclick = ()=>{
+    for (let i=0;i<10;i++) {
+      spawn(width*.32+Math.random()*width*.62,20+Math.random()*100);
+    }
+  };
+
+  function resetWorld() {
+    bodies = [];
+    cuts = 0;
+    heldBody = null;
+    sliceStart = null;
+  }
+
+  document.getElementById("reset").onclick = resetWorld;
+
+  ui.pause.onclick = ()=>{
+    paused = !paused;
+    ui.pause.textContent = paused ? "resume" : "pause";
+    ui.pauseBadge.style.display = paused ? "block" : "none";
+  };
+
+  ui.slow.onclick = ()=>{
+    slowMotion = !slowMotion;
+    ui.slow.classList.toggle("active",slowMotion);
+  };
+
+  
+  
+  addEventListener("keydown",event=>{
+    if (event.code==="Space") {
+      event.preventDefault();
+      ui.pause.click();
+    } else if (event.key.toLowerCase()==="r") {
+      resetWorld();
+    } else if (event.key==="1") {
+      setMode("slice");
+    } else if (event.key==="2") {
+      setMode("drag");
+    } else if (event.key==="3") {
+      setMode("spawn");
+    } else if (event.key==="4") {
+      setMode("delete");
+    }
+  });
+
+  
+  ui.sizeSlider.oninput = () => {
+    if (Number(ui.sizeSlider.value) === 0) {
+      ui.sizeValue.textContent = "Random";
+    } else {
+      ui.sizeValue.textContent = ui.sizeSlider.value + " px";
+    }
+  };
+
+  addEventListener("resize",resize);
+  resize();
+  resetWorld();
+  setMode(mode);
+
+  setTimeout(() => {
+    document.getElementById("help").classList.add("hidden");
+  }, 5000);
+
+  let previousTime = performance.now();
+
+  function frame(now) {
+    const dt = (now-previousTime)/1000;
+    previousTime = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
