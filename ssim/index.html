@@ -113,6 +113,19 @@
 
   .wide { grid-column: span 2; }
 
+  #buildControls {
+    display: none;
+    grid-template-columns: 1fr;
+    gap: 6px;
+    margin-top: 7px;
+    padding-top: 7px;
+    border-top: 1px solid #000;
+  }
+
+  #buildControls.visible { display: grid; }
+  #buildControls select { margin: 0; }
+  #buildStatus { font: 10px Consolas, monospace; line-height: 1.25; }
+
   #stats {
     margin-top: 10px;
     padding-top: 8px;
@@ -370,6 +383,26 @@
     <button data-mode="drag">Grab</button>
     <button data-mode="spawn">Spawn</button>
     <button data-mode="delete">Delete</button>
+    <button data-mode="build" class="wide">Constraints</button>
+  </div>
+
+  <div id="buildControls">
+    <select id="buildTool" aria-label="Constraint tool">
+      <option value="hinge">hinge / pin</option>
+      <option value="motor">motor hinge</option>
+      <option value="rope">rope</option>
+      <option value="spring">spring</option>
+      <option value="chain">chain</option>
+      <option value="anchor">static anchor</option>
+      <option value="weld">weld materials</option>
+    </select>
+    <label id="constraintStrengthLabel"><span>break strength</span><span id="constraintStrengthValue">1200</span></label>
+    <input id="constraintStrength" type="range" min="250" max="3000" step="50" value="1200">
+    <label id="motorSpeedLabel"><span>motor speed</span><span id="motorSpeedValue">2.5</span></label>
+    <input id="motorSpeed" type="range" min="-8" max="8" step="0.5" value="2.5">
+    <button id="toggleConstraints" type="button" aria-pressed="false">Hide constraint labels</button>
+    <button id="finishWeld" type="button">Weld selected</button>
+    <div id="buildStatus">Pause, then drag between objects.</div>
   </div>
 
   <div class="actions">
@@ -378,6 +411,7 @@
     <button id="pause" type="button" aria-pressed="false">Pause</button>
     <button id="slow" type="button" aria-pressed="false" title="S">slow motion</button>
     <button id="impact" class="wide" type="button" aria-pressed="false" title="I">Impact: off</button>
+    <button id="fireGuns" class="wide" type="button" title="F" style="display:none">Fire guns</button>
   </div>
 </section>
 
@@ -429,10 +463,22 @@
     pause: document.getElementById("pause"),
     slow: document.getElementById("slow"),
     impact: document.getElementById("impact"),
+    buildControls: document.getElementById("buildControls"),
+    buildTool: document.getElementById("buildTool"),
+    finishWeld: document.getElementById("finishWeld"),
+    constraintStrength: document.getElementById("constraintStrength"),
+    constraintStrengthValue: document.getElementById("constraintStrengthValue"),
+    constraintStrengthLabel: document.getElementById("constraintStrengthLabel"),
+    motorSpeed: document.getElementById("motorSpeed"),
+    motorSpeedValue: document.getElementById("motorSpeedValue"),
+    motorSpeedLabel: document.getElementById("motorSpeedLabel"),
+    toggleConstraints: document.getElementById("toggleConstraints"),
+    buildStatus: document.getElementById("buildStatus"),
+    fireGuns: document.getElementById("fireGuns"),
     help: document.getElementById("help")
   };
 
-  ui.help.textContent = "drag to slice \u00b7 grab and throw \u00b7 right-click to spawn \u00b7 Space pause \u00b7 S slow \u00b7 I impact \u00b7 R reset";
+  ui.help.textContent = "drag to slice \u00b7 pause for constraints \u00b7 right-click to spawn \u00b7 Space pause \u00b7 S slow \u00b7 I impact \u00b7 F fire guns \u00b7 R reset";
 
   let width = 0;
   let height = 0;
@@ -449,15 +495,26 @@
   let sliceStart = null;
   let heldBody = null;
   let heldLocalPoint = null;
+  let pausedRotationOffset = 0;
   let drawSpawnStart = null;
+  let deleteTrailPoint = null;
   let weldDraftParts = [];
   let weldDraftColor = null;
+  let constraints = [];
+  let constraintsVisible = true;
+  let buildStart = null;
+  let weldSelection = new Set();
+  let explosions = [];
   let mouseTrail = [];
   let wind = 0;
   let flash = 0;
   let previousTime = performance.now();
   let helpRemaining = 5;
   const impactBreakQueue = new Map();
+  const sawCutQueue = new Map();
+  const bulletCutQueue = new Map();
+  const deformationQueue = new Map();
+  const MAX_DYNAMIC_BODIES = 140;
 
   const pointer = { x: 0, y: 0, down: false };
 
@@ -648,10 +705,11 @@
   }
 
   assignMaterial("box rectangle line compound triangle pentagon hexagon octagon cross arrow star heart crown house tree cactus bone tungtung", "wood");
-  assignMaterial("sword axe hammer anvil anchor tank knight robot trophy key magnet", "metal");
+  assignMaterial("sword axe hammer saw laser gun bullet anvil anchor tank knight robot trophy key magnet", "metal");
   assignMaterial("shield creeper zombie skeleton enderman skull moon sun planet gem diamond", "stone");
   assignMaterial("phone camera flask hourglass submarine ufo rocket plane", "glass", {density:1.35,restitution:.11});
   assignMaterial("human amongus astronaut ninja ghost snowman alien toilet", "soft");
+  assignMaterial("ragdollhead ragdolltorso ragdolllimb", "soft", {density:.9,restitution:.06,impactStrength:1100});
   assignMaterial("duck fish cat bat capybara doge cheems shrekhead tralalero bombardino", "soft", {density:.78,airDrag:.18});
   assignMaterial("controller boot donut ball circle", "rubber");
   assignMaterial("pizza mushroom cup flower cloud banana lightning", "light");
@@ -679,7 +737,10 @@
     planet:{...MATERIAL_PRESETS.stone,density:1.6,restitution:.12},
     sun:{...MATERIAL_PRESETS.stone,density:1.25,restitution:.14},
     gem:{...MATERIAL_PRESETS.glass,density:1.55,restitution:.20},
-    diamond:{...MATERIAL_PRESETS.glass,density:1.72,restitution:.18}
+    diamond:{...MATERIAL_PRESETS.glass,density:1.72,restitution:.18},
+    explosive:{...MATERIAL_PRESETS.soft,density:1.35,restitution:.08,staticFriction:.72,dynamicFriction:.56,impactStrength:520,shatterCount:5},
+    deformableline:{...MATERIAL_PRESETS.metal,density:1.9,restitution:.035,impactStrength:9999,shatterCount:1},
+    deformablerectangle:{...MATERIAL_PRESETS.metal,density:2.1,restitution:.03,impactStrength:9999,shatterCount:1}
   });
 
   Object.assign(MATERIAL_BY_TYPE, {
@@ -697,6 +758,10 @@
     "materialglass","materialceramic","materialwood","materialstone",
     "materialmetal","materialrubber","materialice","materialfoam"
   ]);
+
+  const isDraggedSpawnType = type =>
+    type === "line" || type === "rectangle" || type === "compound" ||
+    type === "deformableline" || type === "deformablerectangle" || MATERIAL_SAMPLE_TYPES.has(type);
 
   const MATERIAL_SAMPLE_COLORS = {
     materialglass:"rgba(137,211,230,.58)",
@@ -746,7 +811,17 @@
       sleeping: false,
       releaseGrace: 0,
       impactGrace: options.impactGrace || 0,
-      impactGeneration: options.impactGeneration || 0
+      impactGeneration: options.impactGeneration || 0,
+      sawGrace: options.sawGrace || 0,
+      sawFragment:options.sawFragment || false,
+      laserGrace:options.laserGrace || 0,
+      laserGeneration:options.laserGeneration || 0,
+      deformable:options.deformable || false,
+      deformAmount:options.deformAmount || 0,
+      deformLimit:options.deformLimit || .45,
+      deformCooldown:0,
+      textureRemoved:options.textureRemoved || false,
+      isStatic:false
     };
   }
 
@@ -768,8 +843,34 @@
     return makeCCW(lower.concat(half.slice(0,-1)));
   }
 
+  function blendedMaterial(polygons,partStyles,fallback=materialFor("compound")) {
+    if (!partStyles?.length) return {...fallback};
+    const result={};
+    let totalArea=0;
+    for (let i=0;i<polygons.length;i++) {
+      const area=Math.abs(polygonArea(polygons[i]));
+      const material=partStyles[i]?.material || fallback;
+      totalArea+=area;
+      for (const [key,value] of Object.entries(material)) {
+        if (Number.isFinite(value)) result[key]=(result[key]||0)+value*area;
+      }
+    }
+    if (totalArea<=0) return {...fallback};
+    for (const key of Object.keys(result)) result[key]/=totalArea;
+    result.shatterCount=Math.max(1,Math.round(result.shatterCount||fallback.shatterCount));
+    return {...fallback,...result};
+  }
+
   function bodyFromCompoundPolygons(polygons,options={}) {
-    const valid = polygons.filter(poly=>poly.length>=3 && Math.abs(polygonArea(poly))>1);
+    const entries=polygons
+      .map((poly,index)=>({poly,style:options.partStyles?.[index]}))
+      .filter(entry=>entry.poly.length>=3 && Math.abs(polygonArea(entry.poly))>1);
+    const valid=entries.map(entry=>entry.poly);
+    const partStyles=entries.map(entry=>entry.style ? {
+      color:entry.style.color,
+      shapeType:entry.style.shapeType,
+      material:{...(entry.style.material || materialFor(entry.style.shapeType))}
+    } : null);
     if (!valid.length) return null;
 
     let totalArea=0;
@@ -783,7 +884,9 @@
     const localPolygons=valid.map(poly=>makeCCW(poly).map(point=>sub(point,center)));
     const allLocal=localPolygons.flat();
     const hull=convexHull(allLocal);
-    const material=options.material ? {...options.material} : materialFor("compound");
+    const material=options.material
+      ? {...options.material}
+      : blendedMaterial(valid,partStyles,materialFor("compound"));
     const mass=Math.max(.025,totalArea/2300*material.density);
     const radius=Math.max(...allLocal.map(length));
     const polarMoment=localPolygons.reduce((sum,poly)=>sum+polygonPolarMoment(poly),0);
@@ -797,6 +900,7 @@
       angVel:options.angVel || 0,
       verts:hull,
       polygons:localPolygons,
+      partStyles:partStyles.some(Boolean) ? partStyles : null,
       parts:localPolygons.flatMap(poly=>collisionParts(poly)),
       color:options.color || palette[Math.floor(Math.random()*palette.length)],
       shapeType:"compound",
@@ -812,12 +916,18 @@
       sleeping:false,
       releaseGrace:0,
       impactGrace:options.impactGrace || 0,
-      impactGeneration:options.impactGeneration || 0
+      impactGeneration:options.impactGeneration || 0,
+      sawGrace:options.sawGrace || 0,
+      sawFragment:options.sawFragment || false,
+      laserGrace:options.laserGrace || 0,
+      laserGeneration:options.laserGeneration || 0,
+      textureRemoved:options.textureRemoved || false,
+      isStatic:false
     };
   }
 
   function getWorldVertices(body) {
-    return body.verts.map(p=>add(body.pos,rotate(p,body.angle)));
+    return body.verts.map(point=>add(body.pos,rotate(point,body.angle)));
   }
 
   function getWorldParts(body) {
@@ -840,13 +950,73 @@
     return points;
   }
 
+  function limbPolygon(start,end,thickness) {
+    const delta=sub(end,start);
+    const normal=mul(perpendicular(normalize(delta)),thickness*.5);
+    return [add(start,normal),add(end,normal),sub(end,normal),sub(start,normal)];
+  }
+
+  function addRagdollJoint(a,b,point) {
+    constraints.push({
+      id:idCounter++,kind:"hinge",a,b,
+      localA:rotate(sub(point,a.pos),-a.angle),
+      localB:rotate(sub(point,b.pos),-b.angle),
+      worldB:null,restLength:0,strength:Infinity,motorSpeed:0,load:0,age:0
+    });
+  }
+
+  function spawnRagdoll(x,y,r) {
+    if (bodies.length>MAX_DYNAMIC_BODIES-10) return null;
+    const group=idCounter++;
+    const skin="#d6a06d", shirt=palette[group%palette.length], pants="#485b78";
+    const makeBody=(vertices,shapeType,color)=>{
+      const body=bodyFromWorldVertices(vertices,{shapeType,color,material:materialFor(shapeType)});
+      body.ragdollGroup=group;
+      bodies.push(body);
+      return body;
+    };
+
+    const neck={x,y:y-r*.52};
+    const leftShoulder={x:x-r*.25,y:y-r*.43}, rightShoulder={x:x+r*.25,y:y-r*.43};
+    const leftElbow={x:x-r*.67,y:y-r*.12}, rightElbow={x:x+r*.67,y:y-r*.12};
+    const leftHand={x:x-r*.98,y:y+r*.18}, rightHand={x:x+r*.98,y:y+r*.18};
+    const leftHip={x:x-r*.15,y:y+r*.28}, rightHip={x:x+r*.15,y:y+r*.28};
+    const leftKnee={x:x-r*.2,y:y+r*.86}, rightKnee={x:x+r*.2,y:y+r*.86};
+    const leftFoot={x:x-r*.25,y:y+r*1.46}, rightFoot={x:x+r*.25,y:y+r*1.46};
+
+    const torso=makeBody([
+      {x:x-r*.27,y:y-r*.5},{x:x+r*.27,y:y-r*.5},
+      {x:x+r*.23,y:y+r*.32},{x:x-r*.23,y:y+r*.32}
+    ],"ragdolltorso",shirt);
+    const head=makeBody(regularPolygon(x,y-r*.82,r*.27,18,-Math.PI/2),"ragdollhead",skin);
+    const upperLeftArm=makeBody(limbPolygon(leftShoulder,leftElbow,r*.18),"ragdolllimb",shirt);
+    const lowerLeftArm=makeBody(limbPolygon(leftElbow,leftHand,r*.15),"ragdolllimb",skin);
+    const upperRightArm=makeBody(limbPolygon(rightShoulder,rightElbow,r*.18),"ragdolllimb",shirt);
+    const lowerRightArm=makeBody(limbPolygon(rightElbow,rightHand,r*.15),"ragdolllimb",skin);
+    const upperLeftLeg=makeBody(limbPolygon(leftHip,leftKnee,r*.21),"ragdolllimb",pants);
+    const lowerLeftLeg=makeBody(limbPolygon(leftKnee,leftFoot,r*.18),"ragdolllimb",pants);
+    const upperRightLeg=makeBody(limbPolygon(rightHip,rightKnee,r*.21),"ragdolllimb",pants);
+    const lowerRightLeg=makeBody(limbPolygon(rightKnee,rightFoot,r*.18),"ragdolllimb",pants);
+
+    addRagdollJoint(torso,head,neck);
+    addRagdollJoint(torso,upperLeftArm,leftShoulder);
+    addRagdollJoint(upperLeftArm,lowerLeftArm,leftElbow);
+    addRagdollJoint(torso,upperRightArm,rightShoulder);
+    addRagdollJoint(upperRightArm,lowerRightArm,rightElbow);
+    addRagdollJoint(torso,upperLeftLeg,leftHip);
+    addRagdollJoint(upperLeftLeg,lowerLeftLeg,leftKnee);
+    addRagdollJoint(torso,upperRightLeg,rightHip);
+    addRagdollJoint(upperRightLeg,lowerRightLeg,rightKnee);
+    return torso;
+  }
+
   function spawn(x=width*.65,y=40,type=selectedSpawnType) {
-    if (["line","rectangle","compound"].includes(type)) return null;
+    if (isDraggedSpawnType(type)) return null;
     if (type === "random") {
       // Keep random spawning in lockstep with the visible, implemented menu.
       const choices = spawnables
         .map(item => item.id)
-        .filter(id => !["random","line","rectangle","compound"].includes(id));
+        .filter(id => id !== "random" && !isDraggedSpawnType(id));
       type = choices[Math.floor(Math.random()*choices.length)];
     }
 
@@ -856,6 +1026,7 @@
     } else {
       r = Number(ui.sizeSlider.value);
     }
+    if (type==="ragdoll") return spawnRagdoll(x,y,r);
     let vertices;
 
     if (MATERIAL_SAMPLE_TYPES.has(type)) {
@@ -863,6 +1034,8 @@
         {x:x-r,y:y-r},{x:x+r,y:y-r},
         {x:x+r,y:y+r},{x:x-r,y:y+r}
       ];
+    } else if (type === "saw") {
+      vertices=regularPolygon(x,y,r,28,0);
     } else if (type === "circle") {
       const sides=28;
       vertices=regularPolygon(x,y,r,sides);
@@ -1484,6 +1657,24 @@
         {x:x-r*.32,y:y-r*.38}
       ];
 
+    } else if (type === "laser") {
+      vertices=[
+        {x:x-r,y:y-r*.42},{x:x+r*.78,y:y-r*.42},{x:x+r,y:y-r*.18},
+        {x:x+r,y:y+r*.18},{x:x+r*.78,y:y+r*.42},{x:x-r,y:y+r*.42}
+      ];
+    } else if (type === "gun") {
+      vertices=[
+        {x:x-r,y:y-r*.42},{x:x+r,y:y-r*.42},{x:x+r,y:y+r*.08},
+        {x:x+r*.12,y:y+r*.08},{x:x+r*.02,y:y+r*.34},{x:x+r*.34,y:y+r},
+        {x:x-r*.18,y:y+r},{x:x-r*.48,y:y+r*.18},{x:x-r,y:y+r*.18}
+      ];
+    } else if (type === "explosive") {
+      vertices = [
+        {x:x-r*.72,y:y-r},{x:x+r*.58,y:y-r},
+        {x:x+r*.78,y:y-r*.72},{x:x+r*.78,y:y+r*.72},
+        {x:x+r*.58,y:y+r},{x:x-r*.72,y:y+r},
+        {x:x-r*.88,y:y+r*.7},{x:x-r*.88,y:y-r*.7}
+      ];
     } else if (type === "box") {
       const w = r*(1.15+Math.random()*.65);
       const h = r*(.85+Math.random()*.6);
@@ -1517,7 +1708,11 @@
       enderman:"#1d1a24",
       astronaut:"#e7e7e7",
       ninja:"#24242a",
-      knight:"#9aa0a8"
+      knight:"#9aa0a8",
+      explosive:"#b8443e",
+      saw:"#b8bdc2",
+      laser:"#4f565c",
+      gun:"#45484c"
     };
 
     const amongUsColors=[
@@ -1545,6 +1740,15 @@
       shapeType:type,
       material:materialFor(type)
     });
+
+    if (type==="explosive") {
+      body.fuse=null;
+      body.blastRadius=Math.max(150,r*5.2);
+    } else if (type==="saw") {
+      body.angVel=(Math.random()<.5 ? -1 : 1)*5.5;
+    } else if (type==="laser") {
+      body.laserCooldown=.04;
+    }
 
     bodies.push(body);
   }
@@ -1665,22 +1869,33 @@
   }
 
   function sliceCompoundBody(body,a,b) {
+    if (body.deformable) return null;
     const worldPolygons=getWorldDrawPolygons(body);
     const firstPolygons=[];
     const secondPolygons=[];
+    const firstStyles=[];
+    const secondStyles=[];
     let crossedPart=false;
 
-    for (const polygon of worldPolygons) {
+    for (let polygonIndex=0;polygonIndex<worldPolygons.length;polygonIndex++) {
+      const polygon=worldPolygons[polygonIndex];
+      const style=body.partStyles?.[polygonIndex] || {
+        color:body.color,
+        shapeType:body.shapeType,
+        material:body.material
+      };
       if (segmentActuallyCrossesPolygon(a,b,polygon)) {
         crossedPart=true;
         const first=clipByLine(polygon,a,b,true);
         const second=clipByLine(polygon,a,b,false);
-        if (first.length>=3 && Math.abs(polygonArea(first))>=.7) firstPolygons.push(first);
-        if (second.length>=3 && Math.abs(polygonArea(second))>=.7) secondPolygons.push(second);
+        if (first.length>=3 && Math.abs(polygonArea(first))>=.7) { firstPolygons.push(first); firstStyles.push(style); }
+        if (second.length>=3 && Math.abs(polygonArea(second))>=.7) { secondPolygons.push(second); secondStyles.push(style); }
       } else if (lineSide(centroid(polygon),a,b)>=0) {
         firstPolygons.push(polygon);
+        firstStyles.push(style);
       } else {
         secondPolygons.push(polygon);
+        secondStyles.push(style);
       }
     }
 
@@ -1710,23 +1925,28 @@
 
     const firstBody=bodyFromCompoundPolygons(firstPolygons,{
       color:body.color,
-      material:body.material,
+      partStyles:firstStyles,
       vel:add(velocityAtPoint(body,firstCenter),mul(normal,separationSpeed*firstSide)),
-      angVel:body.angVel
+      angVel:body.angVel,
+      sawFragment:body.sawFragment
     });
     const secondBody=bodyFromCompoundPolygons(secondPolygons,{
       color:body.color,
-      material:body.material,
+      partStyles:secondStyles,
       vel:add(velocityAtPoint(body,secondCenter),mul(normal,separationSpeed*secondSide)),
-      angVel:body.angVel
+      angVel:body.angVel,
+      sawFragment:body.sawFragment
     });
     if (!firstBody || !secondBody) return null;
+    firstBody.textureRemoved=true;
+    secondBody.textureRemoved=true;
     firstBody.pos=add(firstBody.pos,mul(normal,1.2*firstSide));
     secondBody.pos=add(secondBody.pos,mul(normal,1.2*secondSide));
     return [firstBody,secondBody];
   }
 
   function sliceBody(body,a,b) {
+    if (body.deformable) return null;
     if (body.isCompound) return sliceCompoundBody(body,a,b);
     const vertices = getWorldVertices(body);
 
@@ -1768,17 +1988,26 @@
 
     const firstBody = bodyFromWorldVertices(first,{
       color:body.color,
+      shapeType:body.shapeType,
       vel:add(velocityAtPoint(body,firstCenter),mul(normal,separationSpeed*firstSide)),
       angVel:body.angVel,
-      material:body.material
+      material:body.material,
+      sawFragment:body.sawFragment
     });
 
     const secondBody = bodyFromWorldVertices(second,{
       color:body.color,
+      shapeType:body.shapeType,
       vel:add(velocityAtPoint(body,secondCenter),mul(normal,separationSpeed*secondSide)),
       angVel:body.angVel,
-      material:body.material
+      material:body.material,
+      sawFragment:body.sawFragment
     });
+
+    firstBody.textureRemoved=true;
+    secondBody.textureRemoved=true;
+    firstBody.ragdollGroup=body.ragdollGroup;
+    secondBody.ragdollGroup=body.ragdollGroup;
 
     firstBody.pos = add(firstBody.pos,mul(normal,1.5*firstSide));
     secondBody.pos = add(secondBody.pos,mul(normal,1.5*secondSide));
@@ -1786,9 +2015,117 @@
     return [firstBody,secondBody];
   }
 
+  function configureDeformableBody(body,limit=.55) {
+    if (!body) return body;
+    body.deformable=true;
+    body.deformAmount=0;
+    body.deformLimit=limit;
+    body.deformOriginalRadius=body.radius;
+    body.deformOriginalArea=Math.abs(polygonArea(body.verts));
+    body.deformBaseVerts=body.verts.map(point=>({...point}));
+    body.deformCooldown=0;
+    return body;
+  }
+
+  function isStableDeformedPolygon(vertices,minimumArea) {
+    if (Math.abs(polygonArea(vertices))<minimumArea) return false;
+    for (let i=0;i<vertices.length;i++) {
+      const a=vertices[i], b=vertices[(i+1)%vertices.length];
+      if (length(sub(b,a))<1.25) return false;
+      for (let j=i+1;j<vertices.length;j++) {
+        if (j===i || j===(i+1)%vertices.length || (j+1)%vertices.length===i) continue;
+        if (segmentIntersection(a,b,vertices[j],vertices[(j+1)%vertices.length])) return false;
+      }
+    }
+    return true;
+  }
+
+  function queueDeformation(body,worldNormal,impactSpeed,contact=body?.pos) {
+    if (!body?.deformable || impactSpeed<145) return false;
+    const previous=deformationQueue.get(body.id);
+    if (!previous || impactSpeed>previous.impactSpeed) {
+      deformationQueue.set(body.id,{body,worldNormal:{...worldNormal},impactSpeed,contact:{...contact}});
+    }
+    return true;
+  }
+
+  function processDeformations() {
+    for (const hit of deformationQueue.values()) {
+      if (!bodies.includes(hit.body) || hit.body.deformCooldown>0) continue;
+      applyDeformation(hit.body,hit.worldNormal,hit.impactSpeed,hit.contact);
+    }
+    deformationQueue.clear();
+  }
+
+  function applyDeformation(body,worldNormal,impactSpeed,contact=body?.pos) {
+    if (!body?.deformable) return false;
+    if (impactSpeed<145) return true;
+
+    const previousInertia=body.inertia;
+    const localNormal=normalize(rotate(worldNormal,-body.angle));
+    const localContact=rotate(sub(contact,body.pos),-body.angle);
+    const base=body.deformBaseVerts?.length===body.verts.length
+      ? body.deformBaseVerts
+      : body.verts.map(point=>({...point}));
+    const influenceRadius=Math.max(14,(body.deformOriginalRadius||body.radius)*.42);
+    const shortestEdge=Math.min(...body.verts.map((point,index)=>
+      length(sub(body.verts[(index+1)%body.verts.length],point))
+    ));
+    // Many small plastic bends stay stable and allow unlimited repeated hits.
+    const maximumStep=Math.max(.45,Math.min(
+      body.collisionThickness*.22,
+      shortestEdge*.34,
+      (body.deformOriginalRadius||body.radius)*.055
+    ));
+    const depth=clamp((impactSpeed-145)*.006,.25,maximumStep);
+    const maximumOffset=(body.deformOriginalRadius||body.radius)*(body.deformLimit||.5);
+
+    let nextVerts=body.verts.map((point,index)=>{
+      const distance=length(sub(point,localContact));
+      const influence=Math.exp(-Math.pow(distance/influenceRadius,2));
+      let candidate=add(point,mul(localNormal,depth*influence));
+      const totalOffset=sub(candidate,base[index]);
+      const totalLength=length(totalOffset);
+      if (totalLength>maximumOffset) candidate=add(base[index],mul(totalOffset,maximumOffset/totalLength));
+      return candidate;
+    });
+
+    const minimumArea=Math.max(12,(body.deformOriginalArea||Math.abs(polygonArea(body.verts)))*.22);
+    if (!isStableDeformedPolygon(nextVerts,minimumArea)) {
+      body.deformCooldown=.06;
+      return true;
+    }
+    const localShift=centroid(nextVerts);
+    nextVerts=nextVerts.map(point=>sub(point,localShift));
+    body.deformBaseVerts=base.map(point=>sub(point,localShift));
+    body.pos=add(body.pos,rotate(localShift,body.angle));
+    body.verts=nextVerts;
+    body.parts=collisionParts(body.verts);
+    const area=Math.max(12,Math.abs(polygonArea(body.verts)));
+    body.radius=Math.max(...body.verts.map(length));
+    body.collisionThickness=polygonMinimumThickness(body.verts);
+    body.inertia=Math.max(.05,body.mass*polygonPolarMoment(body.verts)/area);
+    body.invInertia=body.isStatic ? 0 : 1/body.inertia;
+    // Plastic reshaping changes inertia; preserve angular momentum without
+    // allowing an extreme one-frame angular-velocity spike.
+    if (!body.isStatic && previousInertia>0) {
+      body.angVel*=clamp(previousInertia/body.inertia,.72,1.28);
+    }
+    body.deformAmount=Math.max(...body.verts.map((point,index)=>length(sub(point,body.deformBaseVerts[index])))) /
+      Math.max(1,body.deformOriginalRadius||body.radius);
+    body.textureRemoved=true;
+    body.deformCooldown=.028;
+    body.sleeping=false;
+    body.sleepTimer=0;
+    return true;
+  }
+
   function queueImpactBreak(body,normal,contact,damageSpeed) {
     if (!impactMode || paused || body.impactGrace>0 || body.impactGeneration>=3) return;
-    if (body.radius<14 || body.mass<.024 || damageSpeed<body.material.impactStrength) return;
+    if (body.deformable || ["explosive","saw","laser","gun","bullet"].includes(body.shapeType)) return;
+    if (body.radius<14 || body.mass<.024) return;
+    const strength=Math.max(1,body.material.impactStrength);
+    if (damageSpeed<strength) return;
     const previous=impactBreakQueue.get(body.id);
     if (!previous || damageSpeed>previous.damageSpeed) {
       impactBreakQueue.set(body.id,{
@@ -1826,10 +2163,15 @@
     return sliceBody(body,start,end);
   }
 
-  function fractureBody(body,hit) {
+  function fractureBody(body,hit,maxFragments=8) {
+    if (maxFragments<2) return null;
     const severity=hit.damageSpeed/Math.max(body.material.impactStrength,1);
     const baseCuts=body.material.shatterCount || 2;
-    const targetCuts=clamp(Math.round(baseCuts+Math.max(0,severity-1)*1.25),1,7);
+    const targetCuts=clamp(
+      Math.round(baseCuts+Math.max(0,severity-1)*1.25),
+      1,
+      Math.min(7,maxFragments-1)
+    );
     const jitter=(((body.id*47)%101)/100-.5)*.18;
     const offsets=[jitter,jitter+.28,jitter-.28,jitter+.5,jitter-.5,jitter+.7,jitter-.7];
     let fragments=[body];
@@ -1871,14 +2213,291 @@
   function processImpactBreaks() {
     if (!impactBreakQueue.size) return;
     const nextBodies=[];
+    let fractureEvents=0;
+    let fragmentBudget=Math.max(0,Math.min(28,MAX_DYNAMIC_BODIES-bodies.length));
     for (const body of bodies) {
       const hit=impactBreakQueue.get(body.id);
-      const fragments=hit ? fractureBody(body,hit) : null;
-      if (fragments) nextBodies.push(...fragments);
+      const mayFracture=hit && fractureEvents<4 && fragmentBudget>0;
+      const fragments=mayFracture
+        ? fractureBody(body,hit,Math.min(8,fragmentBudget+1))
+        : null;
+      if (fragments) {
+        const added=fragments.length-1;
+        fragmentBudget-=added;
+        fractureEvents++;
+        reattachConstraints(body,fragments);
+        nextBodies.push(...fragments);
+      }
       else nextBodies.push(body);
     }
     bodies=nextBodies;
     impactBreakQueue.clear();
+  }
+
+  function queueSawCut(saw,target,contact) {
+    if (paused || saw.shapeType!=="saw" || target.shapeType==="saw" || target.sawGrace>0) return;
+    if (target.deformable) {
+      queueDeformation(target,normalize(sub(target.pos,saw.pos)),Math.max(180,length(saw.vel)+Math.abs(saw.angVel)*saw.radius),contact);
+      return;
+    }
+    const shouldCull=target.sawFragment && (target.radius<7 || target.mass<.03 || target.collisionThickness<3.5);
+    if (!shouldCull && (target.radius<4 || target.mass<.006 || bodies.length>=MAX_DYNAMIC_BODIES)) return;
+    if (!sawCutQueue.has(target.id)) sawCutQueue.set(target.id,{saw,target,contact:{...contact},shouldCull});
+  }
+
+  function processSawCuts() {
+    if (!sawCutQueue.size) return;
+    let cutsThisFrame=0;
+    for (const hit of sawCutQueue.values()) {
+      if (cutsThisFrame>=6) break;
+      const {saw,target,contact,shouldCull}=hit;
+      if (!bodies.includes(saw) || !bodies.includes(target) || target.sawGrace>0) continue;
+      if (shouldCull) {
+        removeBodyConstraints(target);
+        bodies=bodies.filter(body=>body!==target);
+        continue;
+      }
+
+      let inward=normalize(sub(target.pos,contact));
+      if (length(inward)<1e-7) inward=normalize(sub(target.pos,saw.pos));
+      if (length(inward)<1e-7) inward={x:1,y:0};
+      const start=sub(contact,mul(inward,Math.max(10,target.radius*.42)));
+      const end=add(target.pos,mul(inward,target.radius+32));
+      let pieces=sliceBody(target,start,end);
+
+      if (!pieces) {
+        let travel=normalize(sub(velocityAtPoint(saw,contact),velocityAtPoint(target,contact)));
+        if (length(travel)<1e-7) travel=inward;
+        pieces=sliceBody(
+          target,
+          sub(target.pos,mul(travel,target.radius+24)),
+          add(target.pos,mul(travel,target.radius+24))
+        );
+      }
+      if (!pieces) continue;
+
+      const keptPieces=[];
+      for (const piece of pieces) {
+        piece.sawFragment=true;
+        piece.sawGrace=.12;
+        piece.impactGrace=Math.max(piece.impactGrace,.12);
+        if (piece.radius>=6 && piece.mass>=.02 && piece.collisionThickness>=3) keptPieces.push(piece);
+      }
+      reattachConstraints(target,keptPieces);
+      const index=bodies.indexOf(target);
+      if (index>=0) bodies.splice(index,1,...keptPieces);
+      cuts++;
+      cutsThisFrame++;
+      flash=Math.max(flash,.12);
+    }
+    sawCutQueue.clear();
+  }
+
+  function queueBulletCut(bullet,target,contact) {
+    if (bullet.shapeType!=="bullet" || target.shapeType==="bullet" || target.id===bullet.bulletOwner) return;
+    if (target.radius<6 || target.mass<.012 || bodies.length>=MAX_DYNAMIC_BODIES) return;
+    if (!bulletCutQueue.has(bullet.id)) bulletCutQueue.set(bullet.id,{
+      bullet,target,contact:{...contact},direction:normalize(bullet.vel)
+    });
+  }
+
+  function processBulletCuts() {
+    if (!bulletCutQueue.size) return;
+    const spent=new Set();
+    let splits=0;
+    for (const {bullet,target,contact,direction:impactDirection} of bulletCutQueue.values()) {
+      if (splits>=8 || !bodies.includes(bullet) || !bodies.includes(target)) continue;
+      let direction=impactDirection;
+      if (length(direction)<1e-7) direction=rotate({x:1,y:0},bullet.angle);
+      spent.add(bullet);
+      if (target.deformable) {
+        queueDeformation(target,direction,Math.max(500,length(bullet.vel)),contact);
+        continue;
+      }
+      const span=target.radius*2.4+40;
+      const cutNormal=perpendicular(direction);
+      const inwardDistance=clamp(dot(sub(target.pos,contact),cutNormal),-target.radius*.18,target.radius*.18);
+      const cutPoint=add(contact,mul(cutNormal,inwardDistance));
+      const pieces=sliceBody(target,sub(cutPoint,mul(direction,span)),add(cutPoint,mul(direction,span)));
+      if (!pieces || bodies.length>=MAX_DYNAMIC_BODIES) continue;
+      for (const piece of pieces) {
+        piece.impactGrace=Math.max(piece.impactGrace,.14);
+        piece.releaseGrace=Math.max(piece.releaseGrace,.08);
+      }
+      reattachConstraints(target,pieces);
+      const index=bodies.indexOf(target);
+      if (index>=0) bodies.splice(index,1,...pieces);
+      cuts++;
+      splits++;
+      flash=Math.max(flash,.14);
+    }
+    if (spent.size) bodies=bodies.filter(body=>!spent.has(body));
+    bulletCutQueue.clear();
+  }
+
+  function laserSegment(laser) {
+    const direction=rotate({x:1,y:0},laser.angle);
+    const start=add(laser.pos,mul(direction,laser.radius*.82));
+    return {start,end:add(start,mul(direction,Math.max(width,height)*2.2)),direction};
+  }
+
+  function processLasers(dt) {
+    const lasers=bodies.filter(body=>body.shapeType==="laser");
+    for (const laser of lasers) {
+      laser.laserCooldown=(laser.laserCooldown||0)-dt;
+      if (laser.laserCooldown>0) continue;
+      laser.laserCooldown=.12;
+      const {start,end,direction}=laserSegment(laser);
+      let beamCuts=0;
+      for (const target of [...bodies]) {
+        if (beamCuts>=5 || bodies.length>=MAX_DYNAMIC_BODIES) break;
+        if (target===laser || ["laser","bullet"].includes(target.shapeType)) continue;
+        if (target.laserGrace>0 || (target.laserGeneration||0)>=4) continue;
+        if (target.deformable) {
+          const projection=clamp(dot(sub(target.pos,start),direction),0,length(sub(end,start)));
+          queueDeformation(target,direction,420,add(start,mul(direction,projection)));
+          target.laserGrace=.16;
+          continue;
+        }
+        const pieces=sliceBody(target,start,end);
+        if (!pieces) continue;
+        for (const piece of pieces) {
+          piece.laserGrace=.16;
+          piece.laserGeneration=(target.laserGeneration||0)+1;
+          piece.impactGrace=Math.max(piece.impactGrace,.12);
+        }
+        reattachConstraints(target,pieces);
+        const index=bodies.indexOf(target);
+        if (index>=0) bodies.splice(index,1,...pieces);
+        cuts++;
+        beamCuts++;
+      }
+    }
+  }
+
+  function fireGuns() {
+    if (paused) return;
+    for (const gun of bodies.filter(body=>body.shapeType==="gun")) {
+      if (bodies.length>=MAX_DYNAMIC_BODIES) break;
+      const direction=rotate({x:1,y:0},gun.angle);
+      const normal=perpendicular(direction);
+      const muzzle=add(gun.pos,mul(direction,gun.radius*.88+10));
+      const halfLength=8,halfWidth=3.2;
+      const vertices=[
+        add(add(muzzle,mul(direction,-halfLength)),mul(normal,-halfWidth)),
+        add(add(muzzle,mul(direction,halfLength)),mul(normal,-halfWidth)),
+        add(add(muzzle,mul(direction,halfLength)),mul(normal,halfWidth)),
+        add(add(muzzle,mul(direction,-halfLength)),mul(normal,halfWidth))
+      ];
+      const bullet=bodyFromWorldVertices(vertices,{
+        color:"#e0b94e",
+        shapeType:"bullet",
+        material:materialFor("bullet"),
+        vel:add(velocityAtPoint(gun,muzzle),mul(direction,1250)),
+        impactGrace:.2,
+        impactGeneration:3
+      });
+      bullet.bulletOwner=gun.id;
+      bullet.bulletLife=1.8;
+      bodies.push(bullet);
+      if (!gun.isStatic) {
+        gun.vel=sub(gun.vel,mul(direction,Math.min(75,18/Math.max(gun.mass,.2))));
+        gun.sleeping=false;
+        gun.sleepTimer=0;
+      }
+    }
+  }
+
+  function updateGunControlVisibility() {
+    ui.fireGuns.style.display=bodies.some(body=>body.shapeType==="gun") ? "" : "none";
+  }
+
+  function armExplosive(body,contact,fuse=.075) {
+    if (body.shapeType!=="explosive" || !bodies.includes(body)) return;
+    body.fuse=body.fuse==null ? fuse : Math.min(body.fuse,fuse);
+    body.explosionPoint=contact ? {...contact} : {...body.pos};
+    body.sleeping=false;
+    body.sleepTimer=0;
+  }
+
+  function detonateExplosive(explosive) {
+    if (!bodies.includes(explosive)) return;
+    const origin=explosive.explosionPoint || explosive.pos;
+    const blastRadius=explosive.blastRadius || Math.max(150,explosive.radius*5);
+    removeBodyConstraints(explosive);
+    const survivors=[];
+
+    for (const body of bodies) {
+      if (body===explosive) continue;
+      const offset=sub(body.pos,origin);
+      const centerDistance=length(offset);
+      const surfaceDistance=Math.max(0,centerDistance-body.radius);
+      if (surfaceDistance>=blastRadius) { survivors.push(body); continue; }
+      const direction=centerDistance>1 ? mul(offset,1/centerDistance) : {x:0,y:-1};
+      const falloff=Math.pow(1-surfaceDistance/blastRadius,1.65);
+      const blastSpeed=clamp(760*falloff/Math.sqrt(Math.max(body.mass,.22)),0,1150);
+      body.vel=add(body.vel,mul(direction,blastSpeed));
+      body.angVel+=cross(sub(body.pos,origin),direction)*.0008+(((body.id*29)%17)-8)*.055*falloff;
+      body.sleeping=false;
+      body.sleepTimer=0;
+      body.releaseGrace=Math.max(body.releaseGrace,.22);
+
+      if (body.shapeType==="explosive") {
+        armExplosive(body,body.pos,.035+surfaceDistance/blastRadius*.035);
+        survivors.push(body);
+        continue;
+      }
+
+      const damageSpeed=280+1450*falloff;
+      if (body.deformable) {
+        const contact=sub(body.pos,mul(direction,Math.min(body.radius,centerDistance)));
+        queueDeformation(body,direction,damageSpeed,contact);
+        survivors.push(body);
+        continue;
+      }
+      const fragments=damageSpeed>body.material.impactStrength*.72
+        ? fractureBody(body,{contact:origin,normal:direction,damageSpeed})
+        : null;
+      if (fragments) {
+        reattachConstraints(body,fragments);
+        survivors.push(...fragments);
+      } else {
+        survivors.push(body);
+      }
+    }
+
+    const debrisCount=Math.min(14,Math.max(8,Math.round(explosive.radius/4)));
+    for (let i=0;i<debrisCount && survivors.length<MAX_DYNAMIC_BODIES;i++) {
+      const angle=Math.PI*2*i/debrisCount+((explosive.id*37+i*19)%23)/23*.22;
+      const direction={x:Math.cos(angle),y:Math.sin(angle)};
+      const size=4+(i%4)*1.4;
+      const center=add(origin,mul(direction,8));
+      const vertices=regularPolygon(center.x,center.y,size,3,angle);
+      const debris=bodyFromWorldVertices(vertices,{
+        color:i%3===0 ? "#e6b648" : "#7e302c",
+        shapeType:null,
+        material:{...MATERIAL_PRESETS.stone,density:.7,impactStrength:9999},
+        vel:add(explosive.vel,mul(direction,260+((i*71)%260))),
+        angVel:(i%2 ? 1 : -1)*(5+i*.35),
+        impactGrace:.35,
+        impactGeneration:3
+      });
+      survivors.push(debris);
+    }
+
+    bodies=survivors;
+    explosions.push({x:origin.x,y:origin.y,radius:blastRadius,age:0});
+    flash=Math.max(flash,.88);
+  }
+
+  function updateExplosives(dt) {
+    for (const body of bodies) {
+      if (body.fuse!=null) body.fuse-=dt;
+    }
+    const detonating=bodies.filter(body=>body.shapeType==="explosive" && body.fuse!=null && body.fuse<=0);
+    for (const body of detonating) detonateExplosive(body);
+    for (const explosion of explosions) explosion.age+=dt;
+    explosions=explosions.filter(explosion=>explosion.age<.45);
   }
 
   function performSlice(a,b) {
@@ -1886,8 +2505,15 @@
     let slicedSomething = false;
 
     for (const body of bodies) {
+      if (body.shapeType==="explosive" && segmentActuallyCrossesPolygon(a,b,getWorldVertices(body))) {
+        armExplosive(body,mul(add(a,b),.5),.035);
+        nextBodies.push(body);
+        slicedSomething=true;
+        continue;
+      }
       const pieces = sliceBody(body,a,b);
       if (pieces) {
+        reattachConstraints(body,pieces);
         nextBodies.push(...pieces);
         cuts++;
         slicedSomething = true;
@@ -2216,7 +2842,193 @@
     limitMotion(body);
   }
 
+  function constraintAnchor(constraint,side) {
+    const body=constraint[side];
+    if (!body) return {...constraint["world"+side.toUpperCase()]};
+    return add(body.pos,rotate(constraint["local"+side.toUpperCase()],body.angle));
+  }
+
+  function pointSegmentDistance(point,start,end) {
+    const segment=sub(end,start);
+    const denominator=dot(segment,segment);
+    if (denominator<1e-8) return length(sub(point,start));
+    const t=clamp(dot(sub(point,start),segment)/denominator,0,1);
+    return length(sub(point,add(start,mul(segment,t))));
+  }
+
+  function getConstraintAt(point,tolerance=13) {
+    if (!constraintsVisible) return null;
+    for (let i=constraints.length-1;i>=0;i--) {
+      const constraint=constraints[i];
+      const a=constraintAnchor(constraint,"a");
+      const b=constraintAnchor(constraint,"b");
+      if (pointSegmentDistance(point,a,b)<=tolerance) return constraint;
+    }
+    return null;
+  }
+
+  function deleteAtPoint(point) {
+    let constraint=getConstraintAt(point);
+    while (constraint) {
+      constraints=constraints.filter(item=>item!==constraint);
+      constraint=getConstraintAt(point);
+    }
+
+    // Remove every overlapping body under the eraser, not only the topmost one.
+    const touched=bodies.filter(body=>pointInPolygon(point,getWorldVertices(body)));
+    if (!touched.length) return;
+    const touchedSet=new Set(touched);
+    for (const body of touched) {
+      removeBodyConstraints(body);
+      weldSelection.delete(body);
+    }
+    bodies=bodies.filter(body=>!touchedSet.has(body));
+  }
+
+  function eraseAlongPath(start,end) {
+    const distance=length(sub(end,start));
+    const samples=Math.max(1,Math.ceil(distance/3));
+    for (let i=0;i<=samples;i++) deleteAtPoint(add(start,mul(sub(end,start),i/samples)));
+  }
+
+  function reattachConstraints(oldBody,replacements) {
+    for (const constraint of constraints) {
+      for (const side of ["a","b"]) {
+        if (constraint[side]!==oldBody) continue;
+        const anchor=constraintAnchor(constraint,side);
+        const replacement=replacements.find(body=>pointInPolygon(anchor,getWorldVertices(body))) ||
+          replacements.reduce((best,body)=>
+            !best || length(sub(body.pos,anchor))<length(sub(best.pos,anchor)) ? body : best,null);
+        if (!replacement) {
+          constraint.invalid=true;
+          continue;
+        }
+        constraint[side]=replacement;
+        constraint["local"+side.toUpperCase()]=rotate(sub(anchor,replacement.pos),-replacement.angle);
+      }
+    }
+    constraints=constraints.filter(constraint=>!constraint.invalid && constraint.a && constraint.a!==constraint.b);
+  }
+
+  function removeBodyConstraints(body) {
+    constraints=constraints.filter(constraint=>constraint.a!==body && constraint.b!==body);
+  }
+
+  function setBodyStatic(body,nextStatic) {
+    body.isStatic=nextStatic;
+    body.invMass=nextStatic ? 0 : 1/body.mass;
+    body.invInertia=nextStatic ? 0 : 1/body.inertia;
+    body.vel={x:0,y:0};
+    body.angVel=0;
+    body.sleeping=nextStatic;
+    body.sleepTimer=0;
+  }
+
+  function solveConstraint(constraint,step) {
+    if (constraint.invalid) return;
+    const a=constraint.a;
+    const b=constraint.b;
+    if (!a || !bodies.includes(a) || (b && !bodies.includes(b))) return;
+    const pointA=constraintAnchor(constraint,"a");
+    const pointB=constraintAnchor(constraint,"b");
+    const delta=sub(pointB,pointA);
+    const distance=length(delta);
+    const axis=distance>1e-6 ? mul(delta,1/distance) : {x:1,y:0};
+    const hingeLike=constraint.kind==="hinge" || constraint.kind==="motor";
+    const error=hingeLike
+      ? distance
+      : constraint.kind==="spring"
+        ? distance-constraint.restLength
+        : Math.max(0,distance-constraint.restLength);
+    if (!hingeLike && constraint.kind!=="spring" && error<=.02) return;
+
+    const ra=sub(pointA,a.pos);
+    const rb=b ? sub(pointB,b.pos) : {x:0,y:0};
+    const velocityA=velocityAtPoint(a,pointA);
+    const velocityB=b ? velocityAtPoint(b,pointB) : {x:0,y:0};
+    const relativeSpeed=dot(sub(velocityB,velocityA),axis);
+    const raCross=cross(ra,axis);
+    const rbCross=cross(rb,axis);
+    const inverseMass=a.invMass+raCross*raCross*a.invInertia+
+      (b ? b.invMass+rbCross*rbCross*b.invInertia : 0);
+    if (inverseMass<=1e-8) return;
+
+    const response=constraint.kind==="spring"
+      ? 1-Math.exp(-10*step)
+      : 1;
+    const bias=constraint.kind==="spring"
+      ? error*18
+      : error*(hingeLike ? .32 : .20)/Math.max(step,.001);
+    const rawImpulse=(relativeSpeed+bias)/inverseMass*response;
+    // Strength is measured as acceleration at the joint, so the same setting
+    // behaves consistently for light and heavy shapes.
+    const stress=(Math.abs(relativeSpeed)/Math.max(step,.001)+
+      Math.abs(error)*(constraint.kind==="spring" ? 90 : hingeLike ? 180 : 140))*.35;
+    const unbreakable=constraint.strength===Infinity;
+    constraint.load=unbreakable ? 0 : Math.max((constraint.load||0)*.82,stress);
+    const breakGrace=constraint.kind==="motor" ? 1 : .25;
+    const breakThreshold=unbreakable ? Infinity : (constraint.strength||1200)*(constraint.kind==="motor" ? 8 : 1);
+    if (!unbreakable && constraint.kind!=="motor" && (constraint.age||0)>breakGrace && stress>breakThreshold) {
+      constraint.invalid=true;
+      flash=Math.max(flash,.18);
+      return;
+    }
+    let impulseMagnitude=rawImpulse;
+    const maxImpulse=Math.max(.12,(a.mass+(b?.mass||0))*500*step);
+    impulseMagnitude=clamp(impulseMagnitude,-maxImpulse,maxImpulse);
+    const impulse=mul(axis,impulseMagnitude);
+
+    a.vel=add(a.vel,mul(impulse,a.invMass));
+    a.angVel+=cross(ra,impulse)*a.invInertia;
+    if (b) {
+      b.vel=sub(b.vel,mul(impulse,b.invMass));
+      b.angVel-=cross(rb,impulse)*b.invInertia;
+    }
+
+    if (hingeLike && distance>.015) {
+      const linearInverseMass=a.invMass+(b?.invMass||0);
+      if (linearInverseMass>1e-8) {
+        const correction=mul(axis,Math.min(distance*.62,12));
+        a.pos=add(a.pos,mul(correction,a.invMass/linearInverseMass));
+        if (b) b.pos=sub(b.pos,mul(correction,b.invMass/linearInverseMass));
+      }
+    }
+
+    if (Math.abs(error)>.8 || Math.abs(relativeSpeed)>8) {
+      a.sleeping=false; a.sleepTimer=0;
+      if (b) { b.sleeping=false; b.sleepTimer=0; }
+    }
+    limitMotion(a);
+    if (b) limitMotion(b);
+
+    if (constraint.kind==="motor" && !constraint.invalid) {
+      const inverseAngularMass=a.invInertia+(b?.invInertia||0);
+      if (inverseAngularMass>1e-8) {
+        const relativeAngular=b ? b.angVel-a.angVel : a.angVel;
+        const motorError=(constraint.motorSpeed||0)-relativeAngular;
+        let angularImpulse=motorError/inverseAngularMass*(1-Math.exp(-12*step));
+        const lever=Math.max(12,length(ra),length(rb));
+        const motorStress=Math.abs(angularImpulse)/Math.max(step,.001)*inverseAngularMass*lever*.35;
+        constraint.load=unbreakable ? 0 : Math.max(constraint.load||0,motorStress);
+        if (!unbreakable && (constraint.age||0)>breakGrace && motorStress>breakThreshold) {
+          constraint.invalid=true;
+          return;
+        }
+        const effectiveInertia=1/inverseAngularMass;
+        const maxAngularImpulse=effectiveInertia*70*step;
+        angularImpulse=clamp(angularImpulse,-maxAngularImpulse,maxAngularImpulse);
+        if (b) {
+          a.angVel-=angularImpulse*a.invInertia;
+          b.angVel+=angularImpulse*b.invInertia;
+        } else {
+          a.angVel+=angularImpulse*a.invInertia;
+        }
+      }
+    }
+  }
+
   function solveWorldBounds(body) {
+    if (body.isStatic) return;
     const vertices = getWorldVertices(body);
     let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
     for (const v of vertices) {
@@ -2244,6 +3056,8 @@
       const r=sub(contact,body.pos);
       const pointVelocity=add(body.vel,mul(perpendicular(r),body.angVel));
       if (pointVelocity.y>0) {
+        if (pointVelocity.y>125) armExplosive(body,contact);
+        queueDeformation(body,{x:0,y:-1},pointVelocity.y,contact);
         queueImpactBreak(body,{x:0,y:-1},contact,pointVelocity.y);
         const rn=r.x;
         const denom=Math.max(body.invMass+rn*rn*body.invInertia,1e-8);
@@ -2264,6 +3078,7 @@
     if (minX<0) {
       body.pos.x-=minX;
       if (body.vel.x<0) {
+        queueDeformation(body,{x:1,y:0},-body.vel.x,{x:0,y:clamp(body.pos.y,0,height)});
         queueImpactBreak(body,{x:1,y:0},{x:0,y:clamp(body.pos.y,0,height)},-body.vel.x);
         body.vel.x=-body.vel.x*wallBounce;
       }
@@ -2271,6 +3086,7 @@
     if (maxX>width) {
       body.pos.x-=maxX-width;
       if (body.vel.x>0) {
+        queueDeformation(body,{x:-1,y:0},body.vel.x,{x:width,y:clamp(body.pos.y,0,height)});
         queueImpactBreak(body,{x:-1,y:0},{x:width,y:clamp(body.pos.y,0,height)},body.vel.x);
         body.vel.x=-body.vel.x*wallBounce;
       }
@@ -2278,6 +3094,7 @@
     if (minY<0) {
       body.pos.y-=minY;
       if (body.vel.y<0) {
+        queueDeformation(body,{x:0,y:1},-body.vel.y,{x:clamp(body.pos.x,0,width),y:0});
         queueImpactBreak(body,{x:0,y:1},{x:clamp(body.pos.x,0,width),y:0},-body.vel.y);
         body.vel.y=-body.vel.y*wallBounce;
       }
@@ -2287,10 +3104,14 @@
   function update(realDt) {
     if (paused) return;
     impactBreakQueue.clear();
+    sawCutQueue.clear();
+    bulletCutQueue.clear();
+    deformationQueue.clear();
 
     // Real frame time is clamped first; slow motion only scales simulation time.
     const clampedRealDt = clamp(realDt,0,.05);
     const dt = clampedRealDt * (slowMotion ? .25 : 1);
+    for (const body of bodies) body.deformCooldown=Math.max(0,(body.deformCooldown||0)-dt);
 
     const fastestBodySpeed = bodies.reduce((fastest,body) =>
       Math.max(fastest,Math.hypot(body.vel.x,body.vel.y)),0);
@@ -2309,7 +3130,7 @@
         body.supportMaxX = -Infinity;
       }
       for (const body of bodies) {
-        if (!body.sleeping) {
+        if (!body.sleeping && !body.isStatic) {
           body.vel.y += gravity*body.material.gravityScale*step;
           body.vel.x += wind*step;
 
@@ -2327,13 +3148,15 @@
           applyMouseJoint(body,step);
         }
 
-        if (!body.sleeping) {
+        if (!body.sleeping && !body.isStatic) {
           body.pos = add(body.pos,mul(body.vel,step));
           body.angle += body.angVel*step;
           solveWorldBounds(body);
 
           body.releaseGrace = Math.max(0,(body.releaseGrace||0)-step);
           body.impactGrace = Math.max(0,(body.impactGrace||0)-step);
+          body.sawGrace = Math.max(0,(body.sawGrace||0)-step);
+          body.laserGrace = Math.max(0,(body.laserGrace||0)-step);
           const vertices = getWorldVertices(body);
           const onFloor = vertices.some(vertex => vertex.y >= height-11.2);
 
@@ -2367,8 +3190,11 @@
           for (let j=i+1;j<bodies.length;j++) {
             const a = bodies[i];
             const b = bodies[j];
+            if (a.ragdollGroup && a.ragdollGroup===b.ragdollGroup) continue;
 
-            if (length(sub(a.pos,b.pos))>a.radius+b.radius+2) continue;
+            const broadRadiusA=a.radius*(a.deformable ? 1.4 : 1);
+            const broadRadiusB=b.radius*(b.deformable ? 1.4 : 1);
+            if (length(sub(a.pos,b.pos))>broadRadiusA+broadRadiusB+2) continue;
 
             const collision = findCollision(a,b);
             if (!collision) continue;
@@ -2376,11 +3202,23 @@
 
             const relative = sub(velocityAtPoint(b,collision.contact),velocityAtPoint(a,collision.contact));
             const impactSpeed = Math.max(0,-dot(relative,collision.normal));
+            if (a.shapeType==="saw") queueSawCut(a,b,collision.contact);
+            if (b.shapeType==="saw") queueSawCut(b,a,collision.contact);
+            if (a.shapeType==="bullet") queueBulletCut(a,b,collision.contact);
+            if (b.shapeType==="bullet") queueBulletCut(b,a,collision.contact);
+            if (impactSpeed>24) {
+              queueDeformation(a,mul(collision.normal,-1),impactSpeed,collision.contact);
+              queueDeformation(b,collision.normal,impactSpeed,collision.contact);
+            }
+            if (impactSpeed>120) {
+              armExplosive(a,collision.contact);
+              armExplosive(b,collision.contact);
+            }
             queueBodyImpact(a,b,collision,impactSpeed);
             const hardImpact = impactSpeed > 55 || collision.penetration > 3.4;
             if (hardImpact) {
-              a.sleeping = false;
-              b.sleeping = false;
+              if (!a.isStatic) a.sleeping = false;
+              if (!b.isStatic) b.sleeping = false;
               a.sleepTimer = 0;
               b.sleepTimer = 0;
             }
@@ -2400,6 +3238,11 @@
         if (!foundCollision) break;
       }
 
+      for (const constraint of constraints) constraint.age=(constraint.age||0)+step;
+      for (let iteration=0;iteration<8;iteration++) {
+        for (const constraint of constraints) solveConstraint(constraint,step);
+      }
+
       // Position correction can move a body slightly through a wall/floor.
       // Clamp world bounds again after resolving body-to-body contacts.
       for (const body of bodies) solveWorldBounds(body);
@@ -2407,6 +3250,7 @@
       // One authoritative sleep pass prevents floor bodies from accumulating
       // sleep time twice and freezing before a stack is actually stable.
       for (const body of bodies) {
+        if (body.isStatic) continue;
         if (body.sleeping) continue;
         if (body===heldBody || body.releaseGrace>0 || !hasStableSupport(body)) {
           body.sleepTimer=0;
@@ -2436,11 +3280,23 @@
       helpRemaining -= clampedRealDt;
       if (helpRemaining<=0) document.getElementById("help").classList.add("hidden");
     }
+    processBulletCuts();
+    processSawCuts();
+    processLasers(dt);
     processImpactBreaks();
+    updateExplosives(dt);
+    processDeformations();
+    for (const body of bodies) {
+      if (body.shapeType==="bullet") body.bulletLife=(body.bulletLife??1.8)-dt;
+    }
+    bodies=bodies.filter(body=>body.shapeType!=="bullet" || body.bulletLife>0);
     bodies = bodies.filter(body =>
       body.pos.y<height+800 &&
       body.pos.x>-800 &&
       body.pos.x<width+800
+    );
+    constraints=constraints.filter(constraint=>
+      !constraint.invalid && bodies.includes(constraint.a) && (!constraint.b || bodies.includes(constraint.b))
     );
   }
 
@@ -2737,42 +3593,176 @@
     context.restore();
   }
 
-  function drawBody(body) {
-    const polygons = getWorldDrawPolygons(body);
+  function drawExplosiveDetails(context,body) {
+    if (body.shapeType!=="explosive") return;
+    const xs=body.verts.map(point=>point.x), ys=body.verts.map(point=>point.y);
+    const minX=Math.min(...xs), maxX=Math.max(...xs);
+    const minY=Math.min(...ys), maxY=Math.max(...ys);
+    const w=maxX-minX, h=maxY-minY;
+    context.save();
+    context.translate(body.pos.x,body.pos.y);
+    context.rotate(body.angle);
+    context.strokeStyle="#27211e";
+    context.lineWidth=Math.max(2,w*.055);
+    for (const x of [minX+w*.28,maxX-w*.28]) {
+      context.beginPath(); context.moveTo(x,minY+h*.04); context.lineTo(x,maxY-h*.04); context.stroke();
+    }
+    context.fillStyle="#f1d45b";
+    context.beginPath(); context.arc(0,0,Math.max(4,Math.min(w,h)*.16),0,Math.PI*2); context.fill();
+    context.strokeStyle="#1d1b19"; context.lineWidth=2; context.stroke();
+    context.beginPath(); context.moveTo(maxX-w*.12,minY+h*.08); context.quadraticCurveTo(maxX+w*.2,minY-h*.2,maxX+w*.3,minY-h*.02); context.stroke();
+    if (body.fuse!=null) {
+      context.fillStyle="#f26b38";
+      context.beginPath(); context.arc(maxX+w*.3,minY-h*.02,5,0,Math.PI*2); context.fill();
+    }
+    context.restore();
+  }
 
+  function drawSawDetails(context,body) {
+    if (body.shapeType!=="saw") return;
+    const radius=Math.max(...body.verts.map(length));
+    context.save();
+    context.translate(body.pos.x,body.pos.y);
+    context.rotate(body.angle);
+    context.strokeStyle="#4c5155";
+    context.fillStyle="#e6e8e9";
+    context.lineWidth=Math.max(1.5,radius*.055);
+    context.beginPath(); context.arc(0,0,radius*.62,0,Math.PI*2); context.fill(); context.stroke();
+    for (let i=0;i<10;i++) {
+      const angle=i*Math.PI*2/10;
+      context.beginPath();
+      context.moveTo(Math.cos(angle)*radius*.25,Math.sin(angle)*radius*.25);
+      context.lineTo(Math.cos(angle)*radius*.58,Math.sin(angle)*radius*.58);
+      context.stroke();
+    }
+    context.fillStyle="#34383b";
+    context.beginPath(); context.arc(0,0,radius*.16,0,Math.PI*2); context.fill();
+    context.fillStyle="#f3f3f3";
+    context.beginPath(); context.arc(0,0,radius*.065,0,Math.PI*2); context.fill();
+    context.restore();
+  }
+
+  function drawWeaponDetails(context,body) {
+    if (!["laser","gun","bullet"].includes(body.shapeType)) return;
+    const xs=body.verts.map(point=>point.x), ys=body.verts.map(point=>point.y);
+    const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+    const w=maxX-minX, h=maxY-minY;
+    context.save(); context.translate(body.pos.x,body.pos.y); context.rotate(body.angle);
+    context.lineWidth=Math.max(1.5,Math.min(w,h)*.05);
+    context.strokeStyle="#292725";
+    if (body.shapeType==="laser") {
+      context.fillStyle="#e3453d";
+      context.beginPath(); context.arc(maxX-w*.08,0,Math.min(w,h)*.16,0,Math.PI*2); context.fill(); context.stroke();
+      context.fillStyle="#222"; context.fillRect(minX+w*.1,-h*.12,w*.42,h*.24);
+    } else if (body.shapeType==="gun") {
+      context.fillStyle="#c3c5c6"; context.fillRect(minX+w*.12,minY+h*.18,w*.62,h*.16);
+      context.beginPath(); context.arc(minX+w*.58,minY+h*.62,Math.min(w,h)*.1,0,Math.PI*2); context.stroke();
+    } else if (body.shapeType==="bullet") {
+      context.fillStyle="#f0c755"; context.fillRect(minX,minY,w,h);
+    }
+    context.restore();
+  }
+
+  function drawRagdollDetails(context,body) {
+    if (body.shapeType!=="ragdollhead") return;
+    const radius=Math.max(...body.verts.map(length));
+    context.save();
+    context.translate(body.pos.x,body.pos.y);
+    context.rotate(body.angle);
+    context.fillStyle="#2b2622";
+    for (const x of [-radius*.28,radius*.28]) {
+      context.beginPath();
+      context.arc(x,-radius*.12,Math.max(1.5,radius*.07),0,Math.PI*2);
+      context.fill();
+    }
+    context.strokeStyle="#5e3c2d";
+    context.lineWidth=Math.max(1.2,radius*.055);
+    context.beginPath();
+    context.arc(0,radius*.06,radius*.28,.18*Math.PI,.82*Math.PI);
+    context.stroke();
+    context.restore();
+  }
+
+  function drawBodyEffects(context,body) {
+    if (body.isStatic && constraintsVisible) {
+      context.save(); context.translate(body.pos.x,body.pos.y); context.rotate(body.angle);
+      context.fillStyle="#fff"; context.strokeStyle="#111"; context.lineWidth=2;
+      context.beginPath(); context.arc(0,0,7,0,Math.PI*2); context.fill(); context.stroke();
+      context.beginPath(); context.moveTo(-4,0); context.lineTo(4,0); context.moveTo(0,-4); context.lineTo(0,4); context.stroke();
+      context.restore();
+    }
+    if (body.deformable && !body.textureRemoved) {
+      const left={x:-body.radius*.42,y:-body.radius*.25};
+      const right={x:body.radius*.42,y:-body.radius*.25};
+      context.save(); context.translate(body.pos.x,body.pos.y); context.rotate(body.angle);
+      context.strokeStyle="rgba(255,255,255,.55)"; context.lineWidth=Math.max(2,body.radius*.07); context.lineCap="round";
+      context.beginPath(); context.moveTo(left.x,left.y); context.quadraticCurveTo(0,-body.radius*.48,right.x,right.y); context.stroke();
+      context.restore();
+    }
+  }
+
+  function drawBody(body) {
+    const polygons=getWorldDrawPolygons(body);
     ctx.save();
-    ctx.beginPath();
-    for (const vertices of polygons) {
+    ctx.shadowColor="rgba(0,0,0,.26)";
+    ctx.shadowBlur=7;
+    ctx.shadowOffsetX=3;
+    ctx.shadowOffsetY=4;
+
+    for (let polygonIndex=0;polygonIndex<polygons.length;polygonIndex++) {
+      const vertices=polygons[polygonIndex];
+      if (!vertices || vertices.length<3) continue;
+      ctx.beginPath();
       ctx.moveTo(vertices[0].x,vertices[0].y);
       for (let i=1;i<vertices.length;i++) ctx.lineTo(vertices[i].x,vertices[i].y);
       ctx.closePath();
+      ctx.fillStyle=body.partStyles?.[polygonIndex]?.color || body.color;
+      ctx.fill();
+      ctx.shadowColor="transparent";
+      ctx.lineWidth=2;
+      ctx.strokeStyle="#34302c";
+      ctx.stroke();
     }
 
-    ctx.shadowColor = "rgba(0,0,0,.26)";
-    ctx.shadowBlur = 7;
-    ctx.shadowOffsetX = 3;
-    ctx.shadowOffsetY = 4;
-    ctx.fillStyle = body.color;
-    ctx.fill();
-
-    ctx.shadowColor = "transparent";
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#34302c";
-    ctx.stroke();
-
-    ctx.globalAlpha = .18;
-    ctx.beginPath();
+    ctx.globalAlpha=.18;
+    ctx.strokeStyle="white";
+    ctx.lineWidth=3;
     for (const vertices of polygons) {
+      ctx.beginPath();
       ctx.moveTo(vertices[0].x,vertices[0].y);
       for (let i=1;i<Math.min(3,vertices.length);i++) ctx.lineTo(vertices[i].x,vertices[i].y);
+      ctx.stroke();
     }
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 3;
-    ctx.stroke();
 
+    if (weldSelection.has(body)) {
+      ctx.globalAlpha=1;
+      ctx.setLineDash([6,4]);
+      ctx.strokeStyle="#000";
+      ctx.lineWidth=4;
+      for (const vertices of polygons) {
+        ctx.beginPath(); ctx.moveTo(vertices[0].x,vertices[0].y);
+        for (let i=1;i<vertices.length;i++) ctx.lineTo(vertices[i].x,vertices[i].y);
+        ctx.closePath(); ctx.stroke();
+      }
+    }
     ctx.restore();
-    drawMemeDetails(ctx,body);
-    drawMaterialDetails(ctx,body);
+
+    if (!body.textureRemoved) {
+      drawMemeDetails(ctx,body);
+      if (body.partStyles) {
+        body.partStyles.forEach((style,index)=>{
+          if (!style) return;
+          drawMaterialDetails(ctx,{shapeType:style.shapeType,verts:body.polygons[index],pos:body.pos,angle:body.angle});
+        });
+      } else {
+        drawMaterialDetails(ctx,body);
+      }
+      drawExplosiveDetails(ctx,body);
+      drawSawDetails(ctx,body);
+      drawWeaponDetails(ctx,body);
+      drawRagdollDetails(ctx,body);
+    }
+    drawBodyEffects(ctx,body);
   }
 
   function drawSliceLine() {
@@ -2796,14 +3786,18 @@
     if (!drawSpawnStart || !pointer.down || mode!=="spawn") return;
     ctx.save();
     ctx.strokeStyle="#111";
-    ctx.fillStyle="rgba(80,80,80,.16)";
+    ctx.fillStyle=MATERIAL_SAMPLE_TYPES.has(selectedSpawnType)
+      ? MATERIAL_SAMPLE_COLORS[selectedSpawnType]
+      : selectedSpawnType.startsWith("deformable") ? "rgba(115,131,144,.38)"
+      : "rgba(80,80,80,.16)";
+    ctx.globalAlpha=MATERIAL_SAMPLE_TYPES.has(selectedSpawnType) ? .55 : 1;
     ctx.setLineDash([7,5]);
     ctx.lineWidth=2;
-    if (selectedSpawnType==="line" || selectedSpawnType==="compound") {
+    if (selectedSpawnType==="line" || selectedSpawnType==="compound" || selectedSpawnType==="deformableline") {
       ctx.lineCap="round";
       ctx.lineWidth=Math.max(4,Number(ui.sizeSlider.value)||12);
       ctx.beginPath(); ctx.moveTo(drawSpawnStart.x,drawSpawnStart.y); ctx.lineTo(pointer.x,pointer.y); ctx.stroke();
-    } else if (selectedSpawnType==="rectangle") {
+    } else if (selectedSpawnType==="rectangle" || selectedSpawnType==="deformablerectangle" || MATERIAL_SAMPLE_TYPES.has(selectedSpawnType)) {
       const x=Math.min(drawSpawnStart.x,pointer.x), y=Math.min(drawSpawnStart.y,pointer.y);
       const w=Math.abs(pointer.x-drawSpawnStart.x), h=Math.abs(pointer.y-drawSpawnStart.y);
       ctx.fillRect(x,y,w,h); ctx.strokeRect(x,y,w,h);
@@ -2850,12 +3844,112 @@
     ctx.restore();
   }
 
-  function draw() {
-    drawBackground();
+  function drawExplosions() {
+    ctx.save();
+    for (const explosion of explosions) {
+      const progress=clamp(explosion.age/.45,0,1);
+      const radius=explosion.radius*(.12+.88*progress);
+      ctx.globalAlpha=(1-progress)*.7;
+      ctx.strokeStyle=progress<.45 ? "#f09a38" : "#4b4038";
+      ctx.lineWidth=Math.max(2,12*(1-progress));
+      ctx.beginPath(); ctx.arc(explosion.x,explosion.y,radius,0,Math.PI*2); ctx.stroke();
+    }
+    ctx.restore();
+  }
 
+  function drawLaserBeams() {
+    ctx.save();
+    ctx.lineCap="round";
+    for (const laser of bodies.filter(body=>body.shapeType==="laser")) {
+      const {start,end}=laserSegment(laser);
+      ctx.strokeStyle="rgba(225,48,42,.22)"; ctx.lineWidth=9;
+      ctx.beginPath(); ctx.moveTo(start.x,start.y); ctx.lineTo(end.x,end.y); ctx.stroke();
+      ctx.strokeStyle="#ed3c34"; ctx.lineWidth=2.2;
+      ctx.beginPath(); ctx.moveTo(start.x,start.y); ctx.lineTo(end.x,end.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawConstraints() {
+    if (!constraintsVisible) return;
+    ctx.save();
+    ctx.strokeStyle="#292725";
+    ctx.fillStyle="#fff";
+    ctx.lineWidth=2;
+    for (const constraint of constraints) {
+      const loadRatio=constraint.strength===Infinity
+        ? 0
+        : clamp((constraint.load||0)/Math.max(constraint.strength||1200,1),0,1);
+      ctx.strokeStyle=loadRatio>.7 ? `rgb(${Math.round(60+160*loadRatio)},45,40)` : "#292725";
+      const a=constraintAnchor(constraint,"a");
+      const b=constraintAnchor(constraint,"b");
+      const delta=sub(b,a);
+      const distance=Math.max(1,length(delta));
+      const tangent=mul(delta,1/distance);
+      const normal=perpendicular(tangent);
+      if (constraint.kind==="spring") {
+        ctx.beginPath(); ctx.moveTo(a.x,a.y);
+        const coils=9;
+        for (let i=1;i<coils;i++) {
+          const point=add(a,mul(delta,i/coils));
+          const offset=i%2 ? 6 : -6;
+          const zig=add(point,mul(normal,offset));
+          ctx.lineTo(zig.x,zig.y);
+        }
+        ctx.lineTo(b.x,b.y); ctx.stroke();
+      } else if (constraint.kind==="chain") {
+        const links=clamp(Math.round(distance/16),2,28);
+        for (let i=0;i<=links;i++) {
+          const point=add(a,mul(delta,i/links));
+          ctx.beginPath();
+          ctx.ellipse(point.x,point.y,6,3,Math.atan2(delta.y,delta.x)+(i%2?Math.PI/2:0),0,Math.PI*2);
+          ctx.stroke();
+        }
+      } else if (constraint.kind==="rope") {
+        ctx.setLineDash([5,4]);
+        ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (constraint.kind==="hinge" || constraint.kind==="motor") {
+        const pin=mul(add(a,b),.5);
+        ctx.beginPath(); ctx.arc(pin.x,pin.y,6,0,Math.PI*2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(pin.x,pin.y,2,0,Math.PI*2); ctx.fillStyle="#222"; ctx.fill(); ctx.fillStyle="#fff";
+        if (constraint.kind==="motor") {
+          const direction=Math.sign(constraint.motorSpeed||1);
+          ctx.beginPath(); ctx.arc(pin.x,pin.y,11,direction>0 ? -.8 : .8,direction>0 ? 3.8 : -3.8,direction<0); ctx.stroke();
+        }
+      } else {
+        for (const point of [a,b]) {
+          ctx.beginPath(); ctx.arc(point.x,point.y,3.5,0,Math.PI*2); ctx.fill(); ctx.stroke();
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawBuildDraft() {
+    if (!constraintsVisible || !buildStart || !pointer.down || mode!=="build") return;
+    ctx.save();
+    ctx.setLineDash([7,5]);
+    ctx.strokeStyle="#111";
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.moveTo(buildStart.point.x,buildStart.point.y);
+    ctx.lineTo(pointer.x,pointer.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function draw() {
+    updateGunControlVisibility();
+    drawBackground();
+    drawExplosions();
+    drawLaserBeams();
     for (const body of bodies) drawBody(body);
+    drawConstraints();
     drawGrabJoint();
     drawWeldDraft();
+    drawBuildDraft();
     drawSliceLine();
     drawSpawnDraft();
 
@@ -2932,14 +4026,16 @@
     {id:"line",name:"drag line",tag:"draw"},
     {id:"rectangle",name:"drag rectangle",tag:"draw"},
     {id:"compound",name:"welded parts (paused only)",tag:"draw"},
-    {id:"materialglass",name:"glass block",tag:"material"},
-    {id:"materialceramic",name:"ceramic block",tag:"material"},
-    {id:"materialwood",name:"wood block",tag:"material"},
-    {id:"materialstone",name:"stone block",tag:"material"},
-    {id:"materialmetal",name:"metal block",tag:"material"},
-    {id:"materialrubber",name:"rubber block",tag:"material"},
-    {id:"materialice",name:"ice block",tag:"material"},
-    {id:"materialfoam",name:"foam block",tag:"material"},
+    {id:"materialglass",name:"draw glass rectangle",tag:"material"},
+    {id:"materialceramic",name:"draw ceramic rectangle",tag:"material"},
+    {id:"materialwood",name:"draw wood rectangle",tag:"material"},
+    {id:"materialstone",name:"draw stone rectangle",tag:"material"},
+    {id:"materialmetal",name:"draw metal rectangle",tag:"material"},
+    {id:"materialrubber",name:"draw rubber rectangle",tag:"material"},
+    {id:"materialice",name:"draw ice rectangle",tag:"material"},
+    {id:"materialfoam",name:"draw foam rectangle",tag:"material"},
+    {id:"deformableline",name:"draw deformable line",tag:"deformable"},
+    {id:"deformablerectangle",name:"draw deformable rectangle",tag:"deformable"},
     {id:"triangle",name:"triangle",tag:"basic"},
     {id:"pentagon",name:"pentagon",tag:"basic"},
     {id:"hexagon",name:"hexagon",tag:"basic"},
@@ -2959,6 +4055,7 @@
     {id:"knight",name:"knight",tag:"character"},
     {id:"robot",name:"robot",tag:"character"},
     {id:"alien",name:"alien head",tag:"character"},
+    {id:"ragdoll",name:"articulated ragdoll",tag:"special"},
     {id:"ghost",name:"ghost",tag:"spooky"},
     {id:"skull",name:"skull",tag:"spooky"},
     {id:"snowman",name:"snowman",tag:"character"},
@@ -2973,6 +4070,10 @@
     {id:"sword",name:"sword",tag:"weapon"},
     {id:"axe",name:"battle axe",tag:"weapon"},
     {id:"hammer",name:"hammer",tag:"weapon"},
+    {id:"saw",name:"interactive circular saw",tag:"special"},
+    {id:"laser",name:"interactive continuous laser",tag:"special"},
+    {id:"gun",name:"interactive splitting gun",tag:"special"},
+    {id:"explosive",name:"interactive impact explosive",tag:"special"},
     {id:"shield",name:"shield",tag:"weapon"},
     {id:"tank",name:"tank",tag:"vehicle"},
     {id:"rocket",name:"rocket",tag:"vehicle"},
@@ -3021,13 +4122,22 @@
     if (type==="box") return [{x:25,y:12},{x:75,y:12},{x:75,y:48},{x:25,y:48}];
     if (type==="line") return [{x:15,y:25},{x:85,y:25},{x:85,y:35},{x:15,y:35}];
     if (type==="rectangle") return [{x:20,y:14},{x:80,y:14},{x:80,y:46},{x:20,y:46}];
+    if (type==="deformableline") return [{x:12,y:24},{x:88,y:24},{x:88,y:36},{x:12,y:36}];
+    if (type==="deformablerectangle") return [{x:18,y:12},{x:82,y:12},{x:82,y:48},{x:18,y:48}];
     if (type==="compound") return [{x:16,y:24},{x:44,y:24},{x:44,y:10},{x:56,y:10},{x:56,y:24},{x:84,y:24},{x:84,y:36},{x:56,y:36},{x:56,y:50},{x:44,y:50},{x:44,y:36},{x:16,y:36}];
-    if (MATERIAL_SAMPLE_TYPES.has(type)) return [{x:28,y:8},{x:72,y:8},{x:72,y:52},{x:28,y:52}];
+    if (MATERIAL_SAMPLE_TYPES.has(type)) return [{x:16,y:15},{x:84,y:15},{x:84,y:45},{x:16,y:45}];
     if (type==="triangle") return regularPolygon(cx,cy,r,3,-Math.PI/2);
     if (type==="pentagon") return regularPolygon(cx,cy,r,5,-Math.PI/2);
     if (type==="hexagon") return regularPolygon(cx,cy,r,6,0);
     if (type==="octagon") return regularPolygon(cx,cy,r,8,Math.PI/8);
     if (type==="circle") return regularPolygon(cx,cy,r,24,0);
+    if (type==="ragdoll") return [
+      {x:43,y:7},{x:57,y:7},{x:62,y:13},{x:62,y:22},
+      {x:84,y:31},{x:80,y:39},{x:61,y:31},{x:58,y:45},
+      {x:68,y:57},{x:59,y:59},{x:50,y:47},{x:41,y:59},
+      {x:32,y:57},{x:42,y:45},{x:39,y:31},{x:20,y:39},
+      {x:16,y:31},{x:38,y:22},{x:38,y:13}
+    ];
 
     const oldSize = ui.sizeSlider.value;
     ui.sizeSlider.value = 22;
@@ -3083,7 +4193,8 @@
     }
 
     preview.closePath();
-    preview.fillStyle = MATERIAL_SAMPLE_COLORS[type] || (type==="random" ? "#8a8a8a" : "#d7bd53");
+    preview.fillStyle = MATERIAL_SAMPLE_COLORS[type] ||
+      (type==="deformableline" ? "#738390" : type==="deformablerectangle" ? "#87949d" : type==="random" ? "#8a8a8a" : "#d7bd53");
     preview.fill();
     preview.lineWidth=1.5;
     preview.strokeStyle="#111";
@@ -3112,6 +4223,22 @@
         pos:{x:cssWidth*.5,y:cssHeight*.5},
         angle:0
       });
+    }
+    if (["explosive","saw","laser","gun","bullet"].includes(type)) {
+      const localVerts=points.map(point=>({
+        x:(point.x*scale+offsetX)-cssWidth*.5,
+        y:(point.y*scale+offsetY)-cssHeight*.5
+      }));
+      const previewBody={
+        shapeType:type,
+        verts:localVerts,
+        pos:{x:cssWidth*.5,y:cssHeight*.5},
+        angle:0,
+        fuse:null
+      };
+      if (type==="explosive") drawExplosiveDetails(preview,previewBody);
+      else if (type==="saw") drawSawDetails(preview,previewBody);
+      else drawWeaponDetails(preview,previewBody);
     }
   }
 
@@ -3288,6 +4415,32 @@ if ("ResizeObserver" in window) {
     return [add(start,n),add(end,n),sub(end,n),sub(start,n)];
   }
 
+  function deformableSegmentPolygon(start,end,thickness) {
+    const delta=sub(end,start);
+    const segmentLength=length(delta);
+    if (segmentLength<8) return null;
+    const segments=clamp(Math.ceil(segmentLength/22),4,18);
+    const n=mul(perpendicular(normalize(delta)),thickness*.5);
+    const vertices=[];
+    for (let i=0;i<=segments;i++) vertices.push(add(add(start,mul(delta,i/segments)),n));
+    for (let i=segments;i>=0;i--) vertices.push(sub(add(start,mul(delta,i/segments)),n));
+    return vertices;
+  }
+
+  function deformableRectanglePolygon(start,end) {
+    const left=Math.min(start.x,end.x), right=Math.max(start.x,end.x);
+    const top=Math.min(start.y,end.y), bottom=Math.max(start.y,end.y);
+    if (right-left<8 || bottom-top<8) return null;
+    const horizontal=clamp(Math.ceil((right-left)/24),2,14);
+    const vertical=clamp(Math.ceil((bottom-top)/24),2,14);
+    const vertices=[];
+    for (let i=0;i<horizontal;i++) vertices.push({x:left+(right-left)*i/horizontal,y:top});
+    for (let i=0;i<vertical;i++) vertices.push({x:right,y:top+(bottom-top)*i/vertical});
+    for (let i=0;i<horizontal;i++) vertices.push({x:right-(right-left)*i/horizontal,y:bottom});
+    for (let i=0;i<vertical;i++) vertices.push({x:left,y:bottom-(bottom-top)*i/vertical});
+    return vertices;
+  }
+
   function finalizeWeldDraft() {
     if (!weldDraftParts.length) return;
     const body=bodyFromCompoundPolygons(weldDraftParts,{
@@ -3299,6 +4452,122 @@ if ("ResizeObserver" in window) {
     weldDraftColor=null;
   }
 
+  function bodyPartEntries(body) {
+    const polygons=getWorldDrawPolygons(body);
+    return polygons.map((polygon,index)=>({
+      polygon,
+      style:body.partStyles?.[index] || {
+        color:body.color,
+        shapeType:body.shapeType,
+        material:{...body.material}
+      }
+    }));
+  }
+
+  function updateBuildStatus(message) {
+    if (message) {
+      ui.buildStatus.textContent=message;
+      return;
+    }
+    if (!paused) ui.buildStatus.textContent="Pause to use constraint tools.";
+    else if (ui.buildTool.value==="weld") ui.buildStatus.textContent=`${weldSelection.size} selected · click bodies, then Weld selected`;
+    else if (ui.buildTool.value==="anchor") ui.buildStatus.textContent="Click an object to anchor or release it.";
+    else ui.buildStatus.textContent=`Drag from an object to another object or the world (${ui.buildTool.value}).`;
+  }
+
+  function selectedConstraintStrength() {
+    const value=Number(ui.constraintStrength.value);
+    return value>=Number(ui.constraintStrength.max) ? Infinity : value;
+  }
+
+  function updateConstraintStrengthLabel() {
+    ui.constraintStrengthValue.textContent=selectedConstraintStrength()===Infinity
+      ? "Infinite"
+      : ui.constraintStrength.value;
+  }
+
+  function createBuildConstraint(kind,start,end,bodyA,bodyB) {
+    if (!bodyA || bodyA===bodyB) bodyB=null;
+    let anchorA={...start};
+    let anchorB={...end};
+    if (kind==="hinge" || kind==="motor") {
+      const common=bodyB ? mul(add(start,end),.5) : {...start};
+      anchorA={...common};
+      anchorB={...common};
+    }
+    const constraint={
+      id:idCounter++,
+      kind,
+      a:bodyA,
+      b:bodyB,
+      localA:rotate(sub(anchorA,bodyA.pos),-bodyA.angle),
+      localB:bodyB ? rotate(sub(anchorB,bodyB.pos),-bodyB.angle) : null,
+      worldB:bodyB ? null : {...anchorB},
+      restLength:(kind==="hinge" || kind==="motor") ? 0 : Math.max(12,length(sub(anchorB,anchorA))),
+      strength:selectedConstraintStrength()||1200,
+      motorSpeed:kind==="motor" ? Number(ui.motorSpeed.value)||0 : 0,
+      load:0,
+      age:0
+    };
+    constraints.push(constraint);
+    bodyA.sleeping=false; bodyA.sleepTimer=0;
+    if (bodyB) { bodyB.sleeping=false; bodyB.sleepTimer=0; }
+    updateBuildStatus(`${kind} created${bodyB ? " between objects" : " to the world"}.`);
+  }
+
+  function weldSelectedBodies() {
+    const selected=[...weldSelection].filter(body=>bodies.includes(body));
+    if (!paused) { updateBuildStatus("Pause before welding objects."); return; }
+    if (selected.length<2) { updateBuildStatus("Select at least two touching or nearby objects."); return; }
+
+    const entries=selected.flatMap(bodyPartEntries);
+    const totalMass=selected.reduce((sum,body)=>sum+body.mass,0);
+    const velocity=selected.reduce((sum,body)=>add(sum,mul(body.vel,body.mass)),{x:0,y:0});
+    const angularVelocity=selected.reduce((sum,body)=>sum+body.angVel*body.inertia,0)/
+      Math.max(selected.reduce((sum,body)=>sum+body.inertia,0),.001);
+    const welded=bodyFromCompoundPolygons(
+      entries.map(entry=>entry.polygon),
+      {
+        partStyles:entries.map(entry=>entry.style),
+        vel:mul(velocity,1/Math.max(totalMass,.001)),
+        angVel:angularVelocity,
+        color:selected[0].color
+      }
+    );
+    if (!welded) { updateBuildStatus("Those objects could not be welded."); return; }
+
+    for (const body of selected) reattachConstraints(body,[welded]);
+    bodies=bodies.filter(body=>!weldSelection.has(body));
+    bodies.push(welded);
+    weldSelection.clear();
+    updateBuildStatus(`${selected.length} objects welded into one multi-material body.`);
+  }
+
+  ui.finishWeld.onclick=weldSelectedBodies;
+  ui.toggleConstraints.onclick=()=>{
+    constraintsVisible=!constraintsVisible;
+    ui.toggleConstraints.textContent=constraintsVisible ? "Hide constraint labels" : "Show constraint labels";
+    ui.toggleConstraints.setAttribute("aria-pressed",String(!constraintsVisible));
+  };
+  ui.buildTool.onchange=()=>{
+    buildStart=null;
+    weldSelection.clear();
+    ui.finishWeld.style.display=ui.buildTool.value==="weld" ? "block" : "none";
+    const motorVisible=ui.buildTool.value==="motor";
+    ui.motorSpeed.style.display=motorVisible ? "block" : "none";
+    ui.motorSpeedLabel.style.display=motorVisible ? "flex" : "none";
+    const strengthVisible=!['weld','anchor'].includes(ui.buildTool.value);
+    ui.constraintStrength.style.display=strengthVisible ? "block" : "none";
+    ui.constraintStrengthLabel.style.display=strengthVisible ? "flex" : "none";
+    updateBuildStatus();
+  };
+  ui.finishWeld.style.display="none";
+  ui.motorSpeed.style.display="none";
+  ui.motorSpeedLabel.style.display="none";
+  ui.constraintStrength.oninput=updateConstraintStrengthLabel;
+  updateConstraintStrengthLabel();
+  ui.motorSpeed.oninput=()=>ui.motorSpeedValue.textContent=ui.motorSpeed.value;
+
   function createDraggedShape(type,start,end) {
     if (type==="line") {
       const thickness=Math.max(4,Number(ui.sizeSlider.value)||12);
@@ -3306,13 +4575,27 @@ if ("ResizeObserver" in window) {
       if (!vertices) return;
       const body=bodyFromWorldVertices(vertices,{color:palette[Math.floor(Math.random()*palette.length)],shapeType:"line",material:materialFor("line")});
       bodies.push(body);
-    } else if (type==="rectangle") {
+    } else if (type==="deformableline") {
+      const thickness=Math.max(6,Number(ui.sizeSlider.value)||16);
+      const vertices=deformableSegmentPolygon(start,end,thickness);
+      if (!vertices) return;
+      const body=bodyFromWorldVertices(vertices,{color:"#738390",shapeType:type,material:materialFor(type)});
+      bodies.push(configureDeformableBody(body,.62));
+    } else if (type==="deformablerectangle") {
+      const vertices=deformableRectanglePolygon(start,end);
+      if (!vertices) return;
+      const body=bodyFromWorldVertices(vertices,{color:"#87949d",shapeType:type,material:materialFor(type)});
+      bodies.push(configureDeformableBody(body,.52));
+    } else if (type==="rectangle" || MATERIAL_SAMPLE_TYPES.has(type)) {
       if (Math.abs(end.x-start.x)<6 || Math.abs(end.y-start.y)<6) return;
       const vertices=[
         {x:start.x,y:start.y},{x:end.x,y:start.y},
         {x:end.x,y:end.y},{x:start.x,y:end.y}
       ];
-      const body=bodyFromWorldVertices(vertices,{color:palette[Math.floor(Math.random()*palette.length)],shapeType:"rectangle",material:materialFor("rectangle")});
+      const isMaterial=MATERIAL_SAMPLE_TYPES.has(type);
+      const shapeType=isMaterial ? type : "rectangle";
+      const color=isMaterial ? MATERIAL_SAMPLE_COLORS[type] : palette[Math.floor(Math.random()*palette.length)];
+      const body=bodyFromWorldVertices(vertices,{color,shapeType,material:materialFor(shapeType)});
       bodies.push(body);
     } else if (type==="compound" && paused) {
       const thickness=Math.max(6,Number(ui.sizeSlider.value)||18);
@@ -3330,14 +4613,16 @@ function setMode(nextMode) {
       button.classList.toggle("active", button.dataset.mode === mode);
     });
 
-    canvas.style.cursor = (!paused && mode==="spawn" && selectedSpawnType==="compound") ||
-      (paused && mode!=="slice" && mode!=="spawn" && mode!=="delete") ? "not-allowed" :
+    canvas.style.cursor = (!paused && ((mode==="spawn" && selectedSpawnType==="compound") || mode==="build")) ||
+      (paused && !["slice","spawn","delete","build","drag"].includes(mode)) ? "not-allowed" :
       mode === "drag" ? "grab" :
       mode === "spawn" ? "copy" :
       mode === "delete" ? "not-allowed" :
       "crosshair";
 
     ui.spawnPanel.classList.toggle("visible", mode === "spawn");
+    ui.buildControls.classList.toggle("visible",mode==="build");
+    if (mode==="build") updateBuildStatus();
 
     if (mode === "spawn" && !ui.spawnPanel.dataset.positioned) {
       const rect = ui.spawnPanel.getBoundingClientRect();
@@ -3346,6 +4631,7 @@ function setMode(nextMode) {
       ui.spawnPanel.style.right = "auto";
       ui.spawnPanel.dataset.positioned = "true";
     }
+    if (mode==="spawn") requestAnimationFrame(clampSpawnPanelToViewport);
   }
 
 
@@ -3355,7 +4641,7 @@ function setMode(nextMode) {
     const p = pointerPosition(event);
     pointer.x = p.x;
     pointer.y = p.y;
-    const pausedEditMode = mode==="slice" || mode==="spawn" || mode==="delete";
+    const pausedEditMode = mode==="slice" || mode==="spawn" || mode==="delete" || mode==="build" || mode==="drag";
     if (paused && !pausedEditMode) return;
     pointer.down = true;
     canvas.setPointerCapture(event.pointerId);
@@ -3364,22 +4650,46 @@ function setMode(nextMode) {
       sliceStart = p;
     } else if (mode==="spawn") {
       if (selectedSpawnType==="compound" && !paused) return;
-      if (selectedSpawnType==="line" || selectedSpawnType==="rectangle" || selectedSpawnType==="compound") {
+      if (isDraggedSpawnType(selectedSpawnType)) {
         drawSpawnStart={...p};
       } else {
         spawn(p.x,p.y);
       }
     } else if (mode==="delete") {
-      const body = getBodyAt(p);
-      if (body) bodies = bodies.filter(item=>item!==body);
+      deleteTrailPoint={...p};
+      deleteAtPoint(p);
+    } else if (mode==="build") {
+      if (!paused) return;
+      const body=getBodyAt(p);
+      if (ui.buildTool.value==="weld") {
+        if (body) {
+          if (weldSelection.has(body)) weldSelection.delete(body);
+          else weldSelection.add(body);
+          updateBuildStatus();
+        }
+      } else if (ui.buildTool.value==="anchor") {
+        if (body) {
+          setBodyStatic(body,!body.isStatic);
+          updateBuildStatus(body.isStatic ? "Object anchored to the world." : "Object released.");
+        }
+      } else if (body) {
+        buildStart={point:{...p},body};
+      }
     } else if (mode==="drag") {
       heldBody = getBodyAt(p);
+      if (!paused && heldBody?.isStatic) heldBody=null;
       if (heldBody) {
-        heldBody.sleeping = false;
-        heldBody.sleepTimer = 0;
         heldLocalPoint = rotate(sub(p,heldBody.pos),-heldBody.angle);
-        mouseTrail = [];
-        recordMouseTrail(event);
+        if (paused) {
+          pausedRotationOffset=heldBody.angle-Math.atan2(p.y-heldBody.pos.y,p.x-heldBody.pos.x);
+          heldBody.vel={x:0,y:0};
+          heldBody.angVel=0;
+        } else {
+          heldBody.sleeping = false;
+          heldBody.sleepTimer = 0;
+          mouseTrail = [];
+          recordMouseTrail(event);
+        }
         canvas.style.cursor = "grabbing";
       }
     }
@@ -3390,7 +4700,16 @@ function setMode(nextMode) {
     pointer.x = p.x;
     pointer.y = p.y;
 
-    if (!paused && heldBody) {
+    if (pointer.down && mode==="delete" && deleteTrailPoint) {
+      eraseAlongPath(deleteTrailPoint,p);
+      deleteTrailPoint={...p};
+    } else if (paused && heldBody) {
+      heldBody.angle=Math.atan2(p.y-heldBody.pos.y,p.x-heldBody.pos.x)+pausedRotationOffset;
+      heldBody.vel={x:0,y:0};
+      heldBody.angVel=0;
+      heldBody.sleeping=heldBody.isStatic;
+      heldBody.sleepTimer=0;
+    } else if (heldBody) {
       recordMouseTrail(event);
     }
   });
@@ -3400,7 +4719,8 @@ function setMode(nextMode) {
     pointer.x = p.x;
     pointer.y = p.y;
     pointer.down = false;
-    const pausedEditMode = mode==="slice" || mode==="spawn" || mode==="delete";
+    deleteTrailPoint=null;
+    const pausedEditMode = mode==="slice" || mode==="spawn" || mode==="delete" || mode==="build" || mode==="drag";
     if (paused && !pausedEditMode) return;
 
     if (mode==="slice" && sliceStart && length(sub(p,sliceStart))>10) {
@@ -3410,30 +4730,42 @@ function setMode(nextMode) {
       createDraggedShape(selectedSpawnType,drawSpawnStart,p);
       drawSpawnStart=null;
     }
+    if (mode==="build" && buildStart && !["weld","anchor"].includes(ui.buildTool.value)) {
+      createBuildConstraint(ui.buildTool.value,buildStart.point,p,buildStart.body,getBodyAt(p));
+      buildStart=null;
+    }
 
     sliceStart = null;
 
     if (heldBody) {
-      recordMouseTrail(event);
-      const releaseVelocity=estimateReleaseVelocity(mouseTrail);
-      if (releaseVelocity) {
-        // Match velocity at the grabbed point while retaining the angular
-        // momentum created by an off-center throw.
-        const worldOffset=rotate(heldLocalPoint,heldBody.angle);
-        const rotationalVelocity=mul(perpendicular(worldOffset),heldBody.angVel);
-        const targetCenterVelocity=sub(releaseVelocity,rotationalVelocity);
-        heldBody.vel = {
-          x:heldBody.vel.x*.08 + targetCenterVelocity.x*.92,
-          y:heldBody.vel.y*.08 + targetCenterVelocity.y*.92
-        };
-        limitMotion(heldBody);
+      if (paused) {
+        heldBody.vel={x:0,y:0};
+        heldBody.angVel=0;
+        heldBody.sleeping=heldBody.isStatic;
+        heldBody.sleepTimer=0;
+      } else {
+        recordMouseTrail(event);
+        const releaseVelocity=estimateReleaseVelocity(mouseTrail);
+        if (releaseVelocity) {
+          // Match velocity at the grabbed point while retaining the angular
+          // momentum created by an off-center throw.
+          const worldOffset=rotate(heldLocalPoint,heldBody.angle);
+          const rotationalVelocity=mul(perpendicular(worldOffset),heldBody.angVel);
+          const targetCenterVelocity=sub(releaseVelocity,rotationalVelocity);
+          heldBody.vel = {
+            x:heldBody.vel.x*.08 + targetCenterVelocity.x*.92,
+            y:heldBody.vel.y*.08 + targetCenterVelocity.y*.92
+          };
+          limitMotion(heldBody);
+        }
+        heldBody.releaseGrace = 0.42;
+        heldBody.sleeping = false;
+        heldBody.sleepTimer = 0;
       }
-      heldBody.releaseGrace = 0.42;
-      heldBody.sleeping = false;
-      heldBody.sleepTimer = 0;
 
       heldBody = null;
       heldLocalPoint = null;
+      pausedRotationOffset=0;
       mouseTrail = [];
       canvas.style.cursor = "grab";
     }
@@ -3441,8 +4773,11 @@ function setMode(nextMode) {
 
   function cancelActiveInteraction() {
     drawSpawnStart=null;
+    deleteTrailPoint=null;
+    buildStart=null;
     heldBody=null;
     heldLocalPoint=null;
+    pausedRotationOffset=0;
     mouseTrail=[];
     sliceStart=null;
     pointer.down=false;
@@ -3475,7 +4810,14 @@ function setMode(nextMode) {
     cancelActiveInteraction();
     weldDraftParts = [];
     weldDraftColor = null;
+    constraints = [];
+    buildStart = null;
+    weldSelection.clear();
+    explosions = [];
     impactBreakQueue.clear();
+    sawCutQueue.clear();
+    bulletCutQueue.clear();
+    deformationQueue.clear();
   }
 
   document.getElementById("reset").onclick = resetWorld;
@@ -3496,6 +4838,7 @@ function setMode(nextMode) {
     ui.pause.setAttribute("aria-pressed", String(paused));
     ui.pause.classList.toggle("active",paused);
     setMode(mode);
+    updateBuildStatus();
   }
 
   ui.pause.onclick = () => setPaused(!paused);
@@ -3517,6 +4860,7 @@ function setMode(nextMode) {
   }
 
   ui.impact.onclick = ()=>setImpactMode(!impactMode);
+  ui.fireGuns.onclick=fireGuns;
 
   
   
@@ -3543,6 +4887,9 @@ function setMode(nextMode) {
     } else if (event.key.toLowerCase()==="i") {
       if (typing || event.repeat) return;
       setImpactMode(!impactMode);
+    } else if (event.key.toLowerCase()==="f") {
+      if (typing || event.repeat) return;
+      fireGuns();
     } else if (event.key==="1") {
       if (typing) return;
       setMode("slice");
@@ -3555,6 +4902,12 @@ function setMode(nextMode) {
     } else if (event.key==="4") {
       if (typing) return;
       setMode("delete");
+    } else if (event.key==="5") {
+      if (typing) return;
+      setMode("build");
+    } else if (event.key==="Enter" && mode==="build" && ui.buildTool.value==="weld") {
+      if (typing) return;
+      weldSelectedBodies();
     }
   });
 
