@@ -1146,6 +1146,91 @@
     return polygons.map(poly=>poly.map(point=>add(body.pos,rotate(point,body.angle))));
   }
 
+  function unionBoundaryLoops(polygons) {
+    if (!polygons?.length) return [];
+    const allVertices=polygons.flat();
+    const edges=new Map();
+    const pointKey=point=>`${Math.round(point.x*100)},${Math.round(point.y*100)}`;
+    const register=(a,b)=>{
+      const aKey=pointKey(a),bKey=pointKey(b);
+      const key=aKey<bKey ? `${aKey}|${bKey}` : `${bKey}|${aKey}`;
+      const entry=edges.get(key);
+      if (entry) entry.count++;
+      else edges.set(key,{a:{...a},b:{...b},count:1});
+    };
+    for (const polygon of polygons) {
+      for (let index=0;index<polygon.length;index++) {
+        const a=polygon[index],b=polygon[(index+1)%polygon.length];
+        const delta=sub(b,a);
+        const denominator=dot(delta,delta);
+        if (denominator<.0025) continue;
+        const parameters=[0,1];
+        for (const vertex of allVertices) {
+          const t=dot(sub(vertex,a),delta)/denominator;
+          if (t<=1e-5 || t>=1-1e-5) continue;
+          const projected=add(a,mul(delta,t));
+          if (length(sub(vertex,projected))>.08) continue;
+          if (!parameters.some(value=>Math.abs(value-t)<1e-5)) parameters.push(t);
+        }
+        parameters.sort((left,right)=>left-right);
+        for (let part=0;part<parameters.length-1;part++) {
+          const start=add(a,mul(delta,parameters[part]));
+          const end=add(a,mul(delta,parameters[part+1]));
+          if (length(sub(end,start))>.04) register(start,end);
+        }
+      }
+    }
+    const visible=[];
+    const filledAt=point=>polygons.some(polygon=>pointInPolygon(point,polygon));
+    for (const edge of edges.values()) {
+      if (edge.count!==1) continue;
+      const delta=sub(edge.b,edge.a);
+      const edgeLength=length(delta);
+      if (edgeLength<.04) continue;
+      const normal=mul(perpendicular(delta),1/edgeLength);
+      const midpoint=mul(add(edge.a,edge.b),.5);
+      const probe=clamp(edgeLength*.08,.06,.3);
+      if (filledAt(add(midpoint,mul(normal,probe))) &&
+          filledAt(sub(midpoint,mul(normal,probe)))) continue;
+      visible.push(edge);
+    }
+    const adjacency=new Map();
+    const addAdjacent=(key,index)=>{
+      if (!adjacency.has(key)) adjacency.set(key,[]);
+      adjacency.get(key).push(index);
+    };
+    visible.forEach((edge,index)=>{
+      addAdjacent(pointKey(edge.a),index);
+      addAdjacent(pointKey(edge.b),index);
+    });
+    const unused=new Set(visible.map((_,index)=>index));
+    const loops=[];
+    while (unused.size) {
+      const first=unused.values().next().value;
+      unused.delete(first);
+      const edge=visible[first];
+      const startKey=pointKey(edge.a);
+      let currentKey=pointKey(edge.b);
+      const loop=[{...edge.a},{...edge.b}];
+      let guard=0;
+      while (currentKey!==startKey && guard++<visible.length+4) {
+        const nextIndex=(adjacency.get(currentKey)||[]).find(index=>unused.has(index));
+        if (nextIndex==null) break;
+        unused.delete(nextIndex);
+        const nextEdge=visible[nextIndex];
+        const nextPoint=pointKey(nextEdge.a)===currentKey ? nextEdge.b : nextEdge.a;
+        loop.push({...nextPoint});
+        currentKey=pointKey(nextPoint);
+      }
+      if (currentKey===startKey) {
+        loop.pop();
+        const clean=cleanPolygon(loop);
+        if (clean.length>=3 && Math.abs(polygonArea(clean))>.7) loops.push(clean);
+      }
+    }
+    return loops;
+  }
+
   function regularPolygon(x,y,r,sides,angle=Math.random()*Math.PI) {
     const points = [];
     for (let i=0;i<sides;i++) {
@@ -2213,6 +2298,25 @@
     return false;
   }
 
+  function scissorBoundaryLoops(body) {
+    return body.boundaryLoops?.length ? body.boundaryLoops : [body.verts];
+  }
+
+  function scissorBoundaryLocation(body,point,tolerance=3) {
+    let best=null;
+    for (let loopIndex=0;loopIndex<scissorBoundaryLoops(body).length;loopIndex++) {
+      const loop=scissorBoundaryLoops(body)[loopIndex];
+      const location=polygonBoundaryLocation(point,loop);
+      if (location && (!best || location.distance<best.distance)) best={...location,loop:loopIndex};
+    }
+    return best && best.distance<=tolerance ? best : null;
+  }
+
+  function snapScissorPointToBoundary(body,point,tolerance=9) {
+    const location=scissorBoundaryLocation(body,point,tolerance);
+    return location ? {...location.point} : {...point};
+  }
+
   function completedScissorPath(body) {
     const cuts=body.scissorCuts||[];
     if (!cuts.length) return null;
@@ -2228,13 +2332,16 @@
       if (!adjacency[a].includes(b)) adjacency[a].push(b);
       if (!adjacency[b].includes(a)) adjacency[b].push(a);
     }
-    const boundaryNodes=nodes.map((point,index)=>pointOnPolygonBoundary(point,body.verts) ? index : -1).filter(index=>index>=0);
+    const boundaryLocations=nodes.map(point=>scissorBoundaryLocation(body,point));
+    const boundaryNodes=boundaryLocations.map((location,index)=>location ? index : -1).filter(index=>index>=0);
     for (const start of boundaryNodes) {
       const queue=[start];
       const previous=new Map([[start,-1]]);
       while (queue.length) {
         const current=queue.shift();
-        if (current!==start && boundaryNodes.includes(current) && length(sub(nodes[current],nodes[start]))>3) {
+        if (current!==start && boundaryNodes.includes(current) &&
+            boundaryLocations[current].loop===boundaryLocations[start].loop &&
+            length(sub(nodes[current],nodes[start]))>3) {
           const path=[];
           for (let cursor=current;cursor>=0;cursor=previous.get(cursor)) path.push({...nodes[cursor]});
           return path.reverse();
@@ -2245,6 +2352,87 @@
           queue.push(next);
         }
       }
+    }
+    return null;
+  }
+
+  function completedScissorBoundaryCycle(body) {
+    const cuts=body.scissorCuts||[];
+    const nodes=[];
+    const adjacency=[];
+    const nodeFor=point=>{
+      let index=nodes.findIndex(node=>length(sub(node,point))<1.2);
+      if (index<0) { index=nodes.length; nodes.push({...point}); adjacency.push([]); }
+      return index;
+    };
+    for (const cut of cuts) {
+      const a=nodeFor(cut.a),b=nodeFor(cut.b);
+      if (!adjacency[a].includes(b)) adjacency[a].push(b);
+      if (!adjacency[b].includes(a)) adjacency[b].push(a);
+    }
+    const locations=nodes.map(point=>scissorBoundaryLocation(body,point));
+    const bridges=[];
+    const visited=new Set();
+    for (let seed=0;seed<nodes.length;seed++) {
+      if (visited.has(seed)) continue;
+      const component=[];
+      const queue=[seed];
+      visited.add(seed);
+      while (queue.length) {
+        const current=queue.shift();
+        component.push(current);
+        for (const next of adjacency[current]) if (!visited.has(next)) {
+          visited.add(next);
+          queue.push(next);
+        }
+      }
+      const boundary=component.filter(index=>locations[index]);
+      for (let first=0;first<boundary.length;first++) for (let second=first+1;second<boundary.length;second++) {
+        const start=boundary[first],end=boundary[second];
+        if (locations[start].loop===locations[end].loop) continue;
+        const search=[start];
+        const previous=new Map([[start,-1]]);
+        while (search.length && !previous.has(end)) {
+          const current=search.shift();
+          for (const next of adjacency[current]) if (!previous.has(next)) {
+            previous.set(next,current);
+            search.push(next);
+          }
+        }
+        if (!previous.has(end)) continue;
+        const path=[];
+        for (let cursor=end;cursor>=0;cursor=previous.get(cursor)) path.push({...nodes[cursor]});
+        path.reverse();
+        const low=Math.min(locations[start].loop,locations[end].loop);
+        const high=Math.max(locations[start].loop,locations[end].loop);
+        if (locations[start].loop!==low) path.reverse();
+        bridges.push({low,high,path});
+      }
+    }
+    for (let first=0;first<bridges.length;first++) for (let second=first+1;second<bridges.length;second++) {
+      const a=bridges[first],b=bridges[second];
+      if (a.low!==b.low || a.high!==b.high) continue;
+      const lowLoop=scissorBoundaryLoops(body)[a.low];
+      const highLoop=scissorBoundaryLoops(body)[a.high];
+      const aLow=polygonBoundaryLocation(a.path[0],lowLoop);
+      const aHigh=polygonBoundaryLocation(a.path[a.path.length-1],highLoop);
+      const bLow=polygonBoundaryLocation(b.path[0],lowLoop);
+      const bHigh=polygonBoundaryLocation(b.path[b.path.length-1],highLoop);
+      const shortestRoute=(loop,start,end)=>{
+        const forward=polygonBoundaryRoute(loop,start,end);
+        const backward=[...polygonBoundaryRoute(loop,end,start)].reverse();
+        const routeLength=route=>route.slice(1).reduce((sum,point,index)=>sum+length(sub(point,route[index])),0);
+        return routeLength(forward)<=routeLength(backward) ? forward : backward;
+      };
+      const highRoute=shortestRoute(highLoop,aHigh,bHigh);
+      const lowRoute=shortestRoute(lowLoop,bLow,aLow);
+      const cycle=cleanPolygon([
+        ...a.path,
+        ...highRoute.slice(1),
+        ...[...b.path].reverse().slice(1),
+        ...lowRoute.slice(1)
+      ]);
+      if (cycle.length>=3 && Math.abs(polygonArea(cycle))>1) return cycle;
     }
     return null;
   }
@@ -2318,6 +2506,27 @@
     return outside;
   }
 
+  function scissorCutBelongsToCycle(cut,cycle) {
+    const midpoint=mul(add(cut.a,cut.b),.5);
+    const cutDelta=sub(cut.b,cut.a);
+    const cutLength=length(cutDelta);
+    if (cutLength<1e-7) return true;
+    const cutDirection=mul(cutDelta,1/cutLength);
+    for (let index=0;index<cycle.length;index++) {
+      const edgeA=cycle[index];
+      const edgeB=cycle[(index+1)%cycle.length];
+      if (pointSegmentDistance(midpoint,edgeA,edgeB)<1.2) return true;
+      const edgeDelta=sub(edgeB,edgeA);
+      const edgeLength=length(edgeDelta);
+      if (edgeLength<1e-7 || Math.abs(cross(cutDirection,mul(edgeDelta,1/edgeLength)))>.035) continue;
+      const touchesCorner=[cut.a,cut.b].some(endpoint=>
+        length(sub(endpoint,edgeA))<1.2 || length(sub(endpoint,edgeB))<1.2
+      );
+      if (touchesCorner) return true;
+    }
+    return false;
+  }
+
   function splitBodyAlongScissorCycle(body,rawCycle) {
     const cycle=makeCCW(cleanPolygon(rawCycle||[]));
     const cycleArea=Math.abs(polygonArea(cycle));
@@ -2350,6 +2559,7 @@
     if (!outer || !inner) return null;
     outer.shapeType=body.shapeType;
     outer.hideInternalSeams=true;
+    outer.boundaryLoops=unionBoundaryLoops(outer.polygons);
     for (const piece of [outer,inner]) {
       piece.textureRemoved=true;
       piece.ragdollGroup=body.ragdollGroup;
@@ -2357,12 +2567,9 @@
         if (body[key]!=null) piece[key]=body[key];
       }
     }
-    const remainingCuts=(body.scissorCuts||[]).filter(cut=>{
-      const midpoint=mul(add(cut.a,cut.b),.5);
-      return !cycle.some((point,index)=>
-        pointSegmentDistance(midpoint,point,cycle[(index+1)%cycle.length])<1.2
-      );
-    }).map(cut=>({
+    const remainingCuts=(body.scissorCuts||[])
+      .filter(cut=>!scissorCutBelongsToCycle(cut,cycle))
+      .map(cut=>({
       a:add(body.pos,rotate(cut.a,body.angle)),
       b:add(body.pos,rotate(cut.b,body.angle))
     }));
@@ -2476,16 +2683,17 @@
 
   function addScissorSegment(body,worldA,worldB) {
     const toLocal=point=>rotate(sub(point,body.pos),-body.angle);
-    let a=connectScissorPoint(body,toLocal(worldA));
-    let b=connectScissorPoint(body,toLocal(worldB));
+    let a=connectScissorPoint(body,snapScissorPointToBoundary(body,toLocal(worldA)));
+    let b=connectScissorPoint(body,snapScissorPointToBoundary(body,toLocal(worldB)));
     if (length(sub(a,b))<3) return false;
     insertScissorSegment(body,a,b);
     const path=completedScissorPath(body);
     const cycle=path ? null : completedScissorCycle(body);
-    if (!path && !cycle) return false;
+    const boundaryCycle=path || cycle ? null : completedScissorBoundaryCycle(body);
+    if (!path && !cycle && !boundaryCycle) return false;
     const pieces=path
       ? splitBodyAlongScissorPath(body,path)
-      : splitBodyAlongScissorCycle(body,cycle);
+      : splitBodyAlongScissorCycle(body,cycle || boundaryCycle);
     if (!pieces) return false;
     reattachConstraints(body,pieces);
     const pending=[...pieces];
@@ -2495,9 +2703,12 @@
       const piece=pending.shift();
       const nextPath=completedScissorPath(piece);
       const nextCycle=nextPath ? null : completedScissorCycle(piece);
+      const nextBoundaryCycle=nextPath || nextCycle ? null : completedScissorBoundaryCycle(piece);
       const nextPieces=nextPath
         ? splitBodyAlongScissorPath(piece,nextPath)
-        : nextCycle ? splitBodyAlongScissorCycle(piece,nextCycle) : null;
+        : nextCycle || nextBoundaryCycle
+          ? splitBodyAlongScissorCycle(piece,nextCycle || nextBoundaryCycle)
+          : null;
       if (!nextPieces) {
         finalPieces.push(piece);
         continue;
@@ -4642,14 +4853,34 @@
     if (seamless) {
       const edges=new Map();
       const pointKey=point=>`${Math.round(point.x*10)},${Math.round(point.y*10)}`;
+      const allVertices=polygons.flat();
+      const registerEdge=(a,b)=>{
+        const aKey=pointKey(a),bKey=pointKey(b);
+        const key=aKey<bKey ? `${aKey}|${bKey}` : `${bKey}|${aKey}`;
+        const entry=edges.get(key);
+        if (entry) entry.count++;
+        else edges.set(key,{a,b,count:1});
+      };
       for (const polygon of polygons) {
         for (let i=0;i<polygon.length;i++) {
           const a=polygon[i],b=polygon[(i+1)%polygon.length];
-          const aKey=pointKey(a),bKey=pointKey(b);
-          const key=aKey<bKey ? `${aKey}|${bKey}` : `${bKey}|${aKey}`;
-          const entry=edges.get(key);
-          if (entry) entry.count++;
-          else edges.set(key,{a,b,count:1});
+          const edgeDelta=sub(b,a);
+          const edgeLengthSquared=dot(edgeDelta,edgeDelta);
+          if (edgeLengthSquared<.0025) continue;
+          const parameters=[0,1];
+          for (const vertex of allVertices) {
+            const t=dot(sub(vertex,a),edgeDelta)/edgeLengthSquared;
+            if (t<=1e-5 || t>=1-1e-5) continue;
+            const projected=add(a,mul(edgeDelta,t));
+            if (length(sub(vertex,projected))>.12) continue;
+            if (!parameters.some(value=>Math.abs(value-t)<1e-5)) parameters.push(t);
+          }
+          parameters.sort((left,right)=>left-right);
+          for (let part=0;part<parameters.length-1;part++) {
+            const start=add(a,mul(edgeDelta,parameters[part]));
+            const end=add(a,mul(edgeDelta,parameters[part+1]));
+            if (length(sub(end,start))>.05) registerEdge(start,end);
+          }
         }
       }
       ctx.strokeStyle="#34302c";
